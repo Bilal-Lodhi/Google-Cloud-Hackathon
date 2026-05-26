@@ -1,0 +1,19 @@
+{
+  "name": "google-cloud-rapid-agent-hackathon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-agent evaluation ecosystem for MongoDB partner track - Google Cloud Rapid Agent Hackathon 2026",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "sandbox/hono-api",
+    "sandbox/mcp-server"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=sandbox/hono-api",
+    "build:api": "npm run build --workspace=sandbox/hono-api",
+    "deploy": "npm run deploy --workspace=sandbox/hono-api"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
