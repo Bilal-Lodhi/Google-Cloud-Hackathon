@@ -39,7 +39,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     await healthProvider.checkHealth();
     if (!mounted) return;
-    await reviewProvider.loadReviews();
+    await reviewProvider.loadSessions();
   }
 
   @override
@@ -196,56 +196,74 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: Text('REVIEW RECORDS', style: theme.textTheme.labelSmall),
           ),
           Expanded(
-            child: review.isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : review.records.isEmpty
-                ? Center(
+            child: Builder(
+              builder: (context) {
+                if (review.isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (review.error != null) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Error: ${review.error}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
+                }
+                if (review.sessions.isEmpty) {
+                  return Center(
                     child: Text(
                       'No review records',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: review.records.length,
-                    itemBuilder: (context, index) {
-                      final record = review.records[index];
-                      final isSelected =
-                          review.selected?.recordId == record.recordId;
-                      return ListTile(
-                        selected: isSelected,
-                        leading: CircleAvatar(
-                          backgroundColor: _suspicionColor(
-                            record.suspicion.severity,
-                            theme,
-                          ),
-                          radius: 14,
-                          child: Text(
-                            record.suspicion.suspicionScore.toStringAsFixed(0),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: review.sessions.length,
+                  itemBuilder: (context, index) {
+                    final session = review.sessions[index];
+                    final isSelected =
+                        review.selected?.sessionId == session.sessionId;
+                    final score = session.suspicionScore;
+                    return ListTile(
+                      selected: isSelected,
+                      leading: CircleAvatar(
+                        backgroundColor: _suspicionScoreColor(score, theme),
+                        radius: 14,
+                        child: Text(
+                          score.toStringAsFixed(0),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        title: Text(
-                          record.candidateName,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        subtitle: Text(
-                          record.problemTitle,
-                          style: theme.textTheme.bodySmall,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onTap: () {
-                          review.selectRecord(record);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
+                      ),
+                      title: Text(
+                        session.sessionId,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      subtitle: Text(
+                        'Events: ${session.eventCount} | Status: ${session.status}',
+                        style: theme.textTheme.bodySmall,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        review.selectSession(session.sessionId);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -331,14 +349,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Color _suspicionColor(String severity, ThemeData theme) {
-    switch (severity) {
-      case 'critical':
-        return Colors.red;
-      case 'elevated':
-        return Colors.orange;
-      default:
-        return theme.colorScheme.primary;
-    }
+  Color _suspicionScoreColor(double score, ThemeData theme) {
+    if (score >= 75) return Colors.red;
+    if (score >= 40) return Colors.orange;
+    return theme.colorScheme.primary;
   }
 }

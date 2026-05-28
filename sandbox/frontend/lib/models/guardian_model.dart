@@ -68,43 +68,104 @@ class MicroEvent {
   };
 }
 
+/// Parses a timestamp field that may arrive as a numeric epoch (ms),
+/// an ISO-8601 string, or null.
+String? _parseTimestamp(dynamic value) {
+  if (value == null) return null;
+  if (value is String) return value;
+  if (value is num) {
+    return DateTime.fromMillisecondsSinceEpoch(
+      value.toInt(),
+    ).toUtc().toIso8601String();
+  }
+  return value.toString();
+}
+
+/// Lightweight session summary returned by GET /api/v1/sessions.
+/// Contains just enough metadata to populate the drawer list.
+class SessionSummary {
+  final String sessionId;
+  final String candidateId;
+  final String assessmentId;
+  final String status;
+  final int eventCount;
+  final int pasteCount;
+  final int tabSwitchCount;
+  final double suspicionScore;
+  final String? lastEventTimestamp;
+
+  const SessionSummary({
+    required this.sessionId,
+    required this.candidateId,
+    required this.assessmentId,
+    required this.status,
+    required this.eventCount,
+    required this.pasteCount,
+    required this.tabSwitchCount,
+    required this.suspicionScore,
+    this.lastEventTimestamp,
+  });
+
+  factory SessionSummary.fromJson(Map<String, dynamic> json) {
+    return SessionSummary(
+      sessionId: json['sessionId'] as String? ?? '',
+      candidateId: json['candidateId'] as String? ?? '',
+      assessmentId: json['assessmentId'] as String? ?? '',
+      status: json['status'] as String? ?? 'unknown',
+      eventCount: (json['eventCount'] as num?)?.toInt() ?? 0,
+      pasteCount: (json['pasteCount'] as num?)?.toInt() ?? 0,
+      tabSwitchCount: (json['tabSwitchCount'] as num?)?.toInt() ?? 0,
+      suspicionScore: (json['suspicionScore'] as num?)?.toDouble() ?? 0.0,
+      lastEventTimestamp: _parseTimestamp(json['lastEventTimestamp']),
+    );
+  }
+}
+
 /// Aggregated review record combining the security timeline with the
 /// candidate's final code submission for the split-panel UI.
+/// Maps to GET /api/v1/sessions/:sessionId response shape.
 class ReviewRecord {
-  final String recordId;
+  final String sessionId;
   final String candidateId;
-  final String candidateName;
-  final String problemTitle;
+  final String assessmentId;
+  final String status;
   final String codeSubmission;
-  final String language;
-  final SuspicionPayload suspicion;
-  final List<BehavioralFlag> behavioralFlags;
+  final List<Map<String, dynamic>> timeline;
+  final SuspicionPayload? latestSuspicion;
+  final double finalScore;
 
   const ReviewRecord({
-    required this.recordId,
+    required this.sessionId,
     required this.candidateId,
-    required this.candidateName,
-    required this.problemTitle,
+    required this.assessmentId,
+    required this.status,
     required this.codeSubmission,
-    required this.language,
-    required this.suspicion,
-    required this.behavioralFlags,
+    required this.timeline,
+    this.latestSuspicion,
+    this.finalScore = 0,
   });
 
   factory ReviewRecord.fromJson(Map<String, dynamic> json) {
+    // Parse suspicionSummary array — take the most recent report
+    SuspicionPayload? latest;
+    final reports = json['suspicionSummary'] as List<dynamic>? ?? [];
+    if (reports.isNotEmpty) {
+      latest = SuspicionPayload.fromJson(reports.last as Map<String, dynamic>);
+    }
+
     return ReviewRecord(
-      recordId: json['record_id'] as String? ?? '',
-      candidateId: json['candidate_id'] as String? ?? '',
-      candidateName: json['candidate_name'] as String? ?? 'Unknown Candidate',
-      problemTitle: json['problem_title'] as String? ?? '',
-      codeSubmission: json['code_submission'] as String? ?? '',
-      language: json['language'] as String? ?? 'javascript',
-      suspicion: SuspicionPayload.fromJson(
-        json['suspicion'] as Map<String, dynamic>? ?? const {},
-      ),
-      behavioralFlags: (json['behavioral_flags'] as List<dynamic>? ?? [])
-          .map((f) => BehavioralFlag.fromJson(f as Map<String, dynamic>))
-          .toList(),
+      sessionId: json['sessionId'] as String? ?? '',
+      candidateId: json['candidateId'] as String? ?? '',
+      assessmentId: json['assessmentId'] as String? ?? '',
+      status: json['status'] as String? ?? 'unknown',
+      codeSubmission: json['submittedCode'] as String? ?? '',
+      timeline:
+          (json['timeline'] as List<dynamic>?)
+              ?.map((e) => e as Map<String, dynamic>)
+              .toList() ??
+          [],
+      latestSuspicion: latest,
+      finalScore: (json['finalScore'] as num?)?.toDouble() ?? 0,
     );
   }
 }

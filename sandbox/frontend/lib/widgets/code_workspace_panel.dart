@@ -66,7 +66,7 @@ class CodeWorkspacePanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  record.candidateName,
+                  record.candidateId,
                   style: theme.textTheme.titleSmall,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -78,7 +78,7 @@ class CodeWorkspacePanel extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  record.language.toUpperCase(),
+                  'CODE',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer,
                     fontWeight: FontWeight.w600,
@@ -102,18 +102,22 @@ class CodeWorkspacePanel extends StatelessWidget {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: SelectableText(
-              record.codeSubmission,
+              record.codeSubmission.isEmpty
+                  ? '// No code submitted yet'
+                  : record.codeSubmission,
               style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 13,
                 height: 1.6,
-                color: theme.colorScheme.onSurface,
+                color: record.codeSubmission.isEmpty
+                    ? theme.colorScheme.outline
+                    : theme.colorScheme.onSurface,
               ),
             ),
           ),
         ),
 
-        // Problem title footer
+        // Session info footer
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -130,7 +134,7 @@ class CodeWorkspacePanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Problem: ${record.problemTitle}',
+                  'Session: ${record.sessionId} | Status: ${record.status}',
                   style: theme.textTheme.bodySmall,
                   overflow: TextOverflow.ellipsis,
                 ),

@@ -5,7 +5,7 @@ import '../models/guardian_model.dart';
 
 /// ─── Cerberus AI — Right Panel: Security Metrics Timeline ───────────────────
 /// Scrollable ListView rendering timestamped suspicion scores, micro-event
-/// evidence, and behavioral flags from the MongoDB datastore via SSE stream.
+/// evidence, and timeline entries from the Hono API review endpoint.
 
 class SecurityMetricsPanel extends StatelessWidget {
   const SecurityMetricsPanel({super.key});
@@ -57,28 +57,20 @@ class SecurityMetricsPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Suspicion score header bar
-        _buildScoreHeader(theme, record.suspicion),
+        // Suspicion score header bar (if available)
+        if (record.latestSuspicion != null)
+          _buildScoreHeader(theme, record.latestSuspicion!),
         const Divider(height: 1),
 
-        // Behavioral flags section
-        if (record.behavioralFlags.isNotEmpty) ...[
-          _buildFlagsSection(theme, record.behavioralFlags),
-          const Divider(height: 1),
-        ],
-
-        // Micro-event timeline
+        // Timeline entries
         Expanded(
-          child: record.suspicion.flaggedEvents.isEmpty
+          child: record.timeline.isEmpty
               ? _buildNoEventsPlaceholder(theme)
               : ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: record.suspicion.flaggedEvents.length,
+                  itemCount: record.timeline.length,
                   itemBuilder: (context, index) {
-                    return _buildEventTile(
-                      theme,
-                      record.suspicion.flaggedEvents[index],
-                    );
+                    return _buildTimelineTile(theme, record.timeline[index]);
                   },
                 ),
         ),
@@ -156,66 +148,6 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildFlagsSection(ThemeData theme, List<BehavioralFlag> flags) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.flag, size: 16, color: theme.colorScheme.error),
-              const SizedBox(width: 6),
-              Text(
-                'Behavioral Flags',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: theme.colorScheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '${flags.length}',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onErrorContainer,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: flags.map((flag) {
-              return Chip(
-                avatar: Icon(
-                  _flagIcon(flag.severity),
-                  size: 14,
-                  color: _flagColor(flag.severity, theme),
-                ),
-                label: Text(flag.label, style: theme.textTheme.labelSmall),
-                backgroundColor: _flagColor(
-                  flag.severity,
-                  theme,
-                ).withValues(alpha: 0.12),
-                side: BorderSide.none,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildNoEventsPlaceholder(ThemeData theme) {
     return Center(
       child: Column(
@@ -238,8 +170,13 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildEventTile(ThemeData theme, MicroEvent event) {
-    final eventColor = _eventTypeColor(event.eventType, theme);
+  Widget _buildTimelineTile(ThemeData theme, Map<String, dynamic> entry) {
+    final eventType = entry['eventType'] as String? ?? 'unknown';
+    final label = entry['label'] as String? ?? eventType;
+    final detail = entry['detail'] as String? ?? '';
+    final severity = entry['severity'] as String? ?? 'info';
+    final timestamp = _parseTimelineTimestamp(entry['timestamp']);
+    final eventColor = _timelineSeverityColor(severity, theme);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -258,7 +195,7 @@ class SecurityMetricsPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                _eventIcon(event.eventType),
+                _timelineIcon(eventType),
                 size: 18,
                 color: eventColor,
               ),
@@ -272,34 +209,34 @@ class SecurityMetricsPanel extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        _eventLabel(event.eventType),
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Text(
-                        '${(event.confidence * 100).toStringAsFixed(0)}% conf.',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
+                      _severityBadge(theme, severity),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _eventEvidenceSummary(event.evidence),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontFamily: 'monospace',
-                      fontSize: 11,
+                  if (detail.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      detail,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
-                    _formatTimestamp(event.timestamp),
+                    _formatTimestamp(timestamp),
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
                       fontSize: 10,
@@ -362,89 +299,52 @@ class SecurityMetricsPanel extends StatelessWidget {
     }
   }
 
-  Color _flagColor(String severity, ThemeData theme) {
+  Color _timelineSeverityColor(String severity, ThemeData theme) {
     switch (severity) {
       case 'critical':
         return Colors.red;
       case 'warning':
         return Colors.orange;
       default:
-        return Colors.blue;
+        return theme.colorScheme.primary;
     }
   }
 
-  IconData _flagIcon(String severity) {
-    switch (severity) {
-      case 'critical':
-        return Icons.report;
-      case 'warning':
-        return Icons.warning_amber;
-      default:
-        return Icons.info_outline;
-    }
-  }
-
-  Color _eventTypeColor(String eventType, ThemeData theme) {
+  IconData _timelineIcon(String eventType) {
     switch (eventType) {
-      case 'paste_trigger':
-        return Colors.orange;
-      case 'structural_shift':
-        return Colors.purple;
-      case 'token_injection':
-        return Colors.red;
-      case 'semantic_similarity':
-        return Colors.deepOrange;
-      case 'tab_blur':
-        return Colors.amber;
-      case 'heartbeat_gap':
-        return Colors.teal;
-      default:
-        return theme.colorScheme.outline;
-    }
-  }
-
-  IconData _eventIcon(String eventType) {
-    switch (eventType) {
-      case 'paste_trigger':
+      case 'KEYSTROKE':
+        return Icons.keyboard;
+      case 'PASTE_TRIGGER':
         return Icons.content_paste;
-      case 'structural_shift':
+      case 'CODE_DELTA':
         return Icons.account_tree;
-      case 'token_injection':
-        return Icons.speed;
-      case 'semantic_similarity':
-        return Icons.compare_arrows;
-      case 'tab_blur':
+      case 'TAB_SWITCH':
         return Icons.tab_unselected;
-      case 'heartbeat_gap':
-        return Icons.monitor_heart;
+      case 'WINDOW_BLUR':
+        return Icons.visibility_off;
+      case 'COPY_ATTEMPT':
+        return Icons.copy;
+      case 'DEVELOPER_TOOLS_OPEN':
+        return Icons.terminal;
+      case 'FULLSCREEN_EXIT':
+        return Icons.fullscreen_exit;
+      case 'SUBMIT':
+        return Icons.send;
       default:
         return Icons.help_outline;
     }
   }
 
-  String _eventLabel(String eventType) {
-    switch (eventType) {
-      case 'paste_trigger':
-        return 'Paste Trigger';
-      case 'structural_shift':
-        return 'Structural Shift';
-      case 'token_injection':
-        return 'Token Injection';
-      case 'semantic_similarity':
-        return 'AI Similarity Match';
-      case 'tab_blur':
-        return 'Tab Focus Loss';
-      case 'heartbeat_gap':
-        return 'Heartbeat Gap';
-      default:
-        return eventType;
+  /// Handles timestamps that may arrive as numeric epoch (ms) or ISO-8601 strings.
+  String _parseTimelineTimestamp(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    if (value is num) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        value.toInt(),
+      ).toUtc().toIso8601String();
     }
-  }
-
-  String _eventEvidenceSummary(Map<String, dynamic> evidence) {
-    if (evidence.isEmpty) return 'No evidence details';
-    final keys = evidence.keys.take(3).join(', ');
-    return 'Evidence: $keys';
+    return value.toString();
   }
 
   String _formatTimestamp(String timestamp) {

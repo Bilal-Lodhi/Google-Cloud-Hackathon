@@ -91,7 +91,9 @@ class ApiService {
     while (true) {
       try {
         final review = await fetchReview(sessionId);
-        yield review.suspicion;
+        if (review.latestSuspicion != null) {
+          yield review.latestSuspicion!;
+        }
       } catch (_) {
         // Silently swallow polling errors to keep the stream alive
       }
@@ -123,6 +125,8 @@ class ApiService {
   }
 
   // ── Fetch Review Record ────────────────────────────────────────────────────
+  /// Fetches a single session's full review payload from
+  /// GET /api/v1/sessions/:sessionId which returns { success, data }.
   Future<ReviewRecord> fetchReview(String sessionId) async {
     final uri = Uri.parse('$baseUrl/api/v1/sessions/$sessionId');
     final response = await _client
@@ -132,22 +136,28 @@ class ApiService {
       throw ApiException(response.statusCode, 'Review fetch failed');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return ReviewRecord.fromJson(body);
+    final data = body['data'] as Map<String, dynamic>?;
+    if (data == null) {
+      throw ApiException(response.statusCode, 'Review data missing');
+    }
+    return ReviewRecord.fromJson(data);
   }
 
-  // ── List All Review Records ────────────────────────────────────────────────
-  Future<List<ReviewRecord>> fetchReviews() async {
+  // ── List All Sessions (Drawer) ─────────────────────────────────────────────
+  /// Fetches the session list from GET /api/v1/sessions
+  /// which returns { success, data: [...] }.
+  Future<List<SessionSummary>> fetchSessions() async {
     final uri = Uri.parse('$baseUrl/api/v1/sessions');
     final response = await _client
         .get(uri)
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'Reviews list failed');
+      throw ApiException(response.statusCode, 'Sessions list failed');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final items = body['records'] as List<dynamic>? ?? [];
+    final items = body['data'] as List<dynamic>? ?? [];
     return items
-        .map((r) => ReviewRecord.fromJson(r as Map<String, dynamic>))
+        .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
         .toList();
   }
 
