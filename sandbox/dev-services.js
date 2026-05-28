@@ -1,11 +1,11 @@
 /**
- * Cerberus AI — Local Development Process Manager
+ * Cerberus AI — Auto-Reload Development Launcher
  *
- * Spawns both the Hono API server and the MCP HTTP adapter concurrently
- * for local development. Handles signal forwarding and graceful shutdown.
+ * Runs both Hono API and MCP Server using tsx watch mode.
+ * Both services auto-restart on file changes. Press Ctrl+C to stop.
  *
- * Usage:  node start-services.js
- *         npm run dev:backend
+ * Usage:  node dev-services.js
+ *         npm run dev
  */
 
 import { spawn } from "node:child_process";
@@ -16,7 +16,7 @@ import { config as loadDotenv } from "dotenv";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Load .env from sandbox/ root (and fall back gracefully if missing)
+// Load .env from sandbox/ root
 loadDotenv({ path: join(__dirname, ".env") });
 
 const PORT = process.env["PORT"] ?? "8080";
@@ -31,6 +31,7 @@ const COLORS = {
   yellow: "\x1b[33m",
   red: "\x1b[31m",
   blue: "\x1b[34m",
+  magenta: "\x1b[35m",
 };
 
 /**
@@ -51,14 +52,18 @@ const processes = new Map();
  * @param {string} command
  * @param {string[]} args
  * @param {Record<string, string>} env
+ * @param {string} cwd
  */
-function launch(name, command, args, env) {
-  console.log(`${prefix(name, COLORS.cyan)} Launching: ${command} ${args.join(" ")}`);
+function launch(name, command, args, env, cwd) {
+  console.log(
+    `${prefix(name, COLORS.magenta)} ${COLORS.bright}tsx watch${COLORS.reset} — ${command} ${args.join(" ")}`
+  );
 
   const child = spawn(command, args, {
     stdio: "pipe",
+    cwd,
     env: { ...process.env, ...env },
-    shell: process.platform === "win32", // Windows needs shell for node resolution
+    shell: process.platform === "win32",
   });
 
   child.stdout?.on("data", (/** @type {Buffer} */ data) => {
@@ -80,24 +85,36 @@ function launch(name, command, args, env) {
   });
 
   child.on("exit", (/** @type {number|null} */ code, /** @type {NodeJS.Signals|null} */ signal) => {
-    console.log(
-      `${prefix(name, COLORS.red)} Process exited — code: ${code}, signal: ${signal}`
-    );
+    if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT") {
+      console.log(
+        `${prefix(name, COLORS.red)} Process exited unexpectedly — code: ${code}, signal: ${signal}. Restarting in 2s...`
+      );
+      setTimeout(() => {
+        if (!shuttingDown) launch(name, command, args, env, cwd);
+      }, 2000);
+    }
   });
 
   processes.set(name, child);
 }
 
+let shuttingDown = false;
+
 function cleanup() {
+  shuttingDown = true;
   console.log(`\n${prefix("MANAGER", COLORS.yellow)} Shutting down all services...`);
 
   for (const [name, child] of processes) {
     if (child.exitCode === null) {
       console.log(`${prefix("MANAGER", COLORS.yellow)} Terminating ${name} (PID ${child.pid})...`);
-      if (process.platform === "win32") {
-        child.kill("SIGKILL");
-      } else {
-        child.kill("SIGTERM");
+      try {
+        if (process.platform === "win32") {
+          child.kill("SIGKILL");
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        // Process may already be dead
       }
     }
   }
@@ -113,32 +130,47 @@ process.on("SIGTERM", cleanup);
 
 console.log(`
 ${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════════╗
-║  🦍 Cerberus AI — Local Development Environment               ║
+║  🦍 Cerberus AI — Development Mode (Auto-Reload)              ║
 ║  Session:   ${CORRELATION_ID}                                            ║
 ║  Hono API:  http://localhost:${PORT}                                ║
 ║  MCP HTTP:  http://localhost:${MCP_PORT}                                ║
 ║  Health:    http://localhost:${PORT}/health                          ║
+║──────────────────────────────────────────────────────────────║
+║  📁 Edit any .ts file → auto-restart on save                 ║
+║  🛑 Press Ctrl+C to stop all services                        ║
 ╚══════════════════════════════════════════════════════════════╝${COLORS.reset}
 `);
 
 // ─── Launch Services ─────────────────────────────────────────────────
 
-// 1. MCP Server (MongoDB Grounding Layer) — internal port
-launch("MCP-Server", "node", [join(__dirname, "mcp-server", "dist", "http-adapter.js")], {
-  MCP_PORT,
-  MONGODB_URI: process.env["MONGODB_URI"] ?? "mongodb://localhost:27017",
-  MONGODB_DATABASE: process.env["MONGODB_DATABASE"] ?? "gorilla_agents",
-});
+// 1. MCP Server (MongoDB Grounding Layer) — tsx watch
+launch(
+  "MCP-Server",
+  "npx",
+  ["tsx", "watch", "src/http-adapter.ts"],
+  {
+    MCP_PORT,
+    MONGODB_URI: process.env["MONGODB_URI"] ?? "mongodb://localhost:27017",
+    MONGODB_DATABASE: process.env["MONGODB_DATABASE"] ?? "gorilla_agents",
+  },
+  join(__dirname, "mcp-server")
+);
 
 // Small delay so MCP binds before Hono connects
 await new Promise((resolve) => setTimeout(resolve, 2000));
 
-// 2. Hono API (Gemini Agent Orchestrator) — external port
-launch("Hono-API", "node", [join(__dirname, "hono-api", "dist", "index.js")], {
-  PORT,
-  MCP_SERVER_ENDPOINT: `http://localhost:${MCP_PORT}`,
-});
+// 2. Hono API (Gemini Agent Orchestrator) — tsx watch
+launch(
+  "Hono-API",
+  "npx",
+  ["tsx", "watch", "src/index.ts"],
+  {
+    PORT,
+    MCP_SERVER_ENDPOINT: `http://localhost:${MCP_PORT}`,
+  },
+  join(__dirname, "hono-api")
+);
 
 console.log(
-  `${prefix("MANAGER", COLORS.blue)} Both services launched — press Ctrl+C to stop\n`
+  `${prefix("MANAGER", COLORS.blue)} Both services watching for changes — press Ctrl+C to stop\n`
 );

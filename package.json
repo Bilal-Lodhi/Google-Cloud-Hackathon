@@ -14,6 +14,7 @@
     "build:mcp": "npm run build -w sandbox/mcp-server",
     "dev:api": "npm run dev -w sandbox/hono-api",
     "dev:mcp": "npm run dev -w sandbox/mcp-server",
+    "dev": "cd sandbox && npm run dev",
     "dev:backend": "npm run build && node sandbox/start-services.js",
     "start": "node sandbox/start-services.js",
     "deploy": "npm run deploy --workspace=sandbox/hono-api"
