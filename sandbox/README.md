@@ -69,14 +69,18 @@ the MongoDB track.
 Google-Cloud-Hackathon/
 ├── .github/
 │   └── HACKATHON_RULES.md          # Official compliance directive
+├── .gitignore                       # Blocks **/.env and node_modules
 ├── LICENSE                          # Apache 2.0 (OSI-approved)
-├── package.json                     # Root npm workspace config
 └── sandbox/
     ├── README.md                    # ← THIS FILE
-    ├── Dockerfile                   # Cloud Run production container
+    ├── package.json                 # npm workspace: hono-api + mcp-server
+    ├── Dockerfile                   # Multi-stage Cloud Run container
+    ├── entrypoint.sh                # Concurrent Hono + MCP launcher
+    ├── start-services.js            # Node.js dev process manager
     ├── hono-api/                    # Hono TypeScript API (Cloud Run)
     │   ├── package.json
     │   ├── tsconfig.json
+    │   ├── .env.template            # Merge with .env before running
     │   └── src/
     │       ├── index.ts             # Entry point, Hono app bootstrap
     │       ├── config.ts            # Environment config loader
@@ -91,21 +95,35 @@ Google-Cloud-Hackathon/
     ├── mcp-server/                  # MCP Server (MongoDB Partner Track)
     │   ├── package.json
     │   ├── tsconfig.json
+    │   ├── .env.template            # Merge with .env before running
     │   └── src/
-    │       ├── server.ts            # MCP server bootstrap + tool registration
-    │       └── mongo-client.ts      # MongoDB native driver wrapper
-    └── flutter-review-panel/        # Flutter Frontend
+    │       ├── server.ts            # StdioServerTransport MCP server
+    │       ├── mongo-client.ts      # MongoDB native driver + MongoStore
+    │       └── http-adapter.ts      # HTTP wrapper for Cloud Run sidecar
+    └── frontend/                    # Flutter Review Panel
+        ├── pubspec.yaml
         └── lib/
-            ├── review_panel.dart    # Main split-panel layout widget
+            ├── main.dart            # App entry point
+            ├── app.dart             # MaterialApp + routing
             ├── models/
-            │   └── review_models.dart
+            │   ├── health_model.dart
+            │   ├── generate_model.dart
+            │   └── guardian_model.dart
+            ├── providers/
+            │   ├── health_provider.dart
+            │   ├── generate_provider.dart
+            │   ├── guardian_provider.dart
+            │   ├── review_provider.dart
+            │   └── theme_provider.dart
+            ├── screens/
+            │   └── dashboard_screen.dart
             ├── services/
-            │   └── review_service.dart
+            │   └── api_service.dart
+            ├── theme/
+            │   └── app_theme.dart
             └── widgets/
-                ├── code_viewer.dart
-                ├── security_timeline.dart
-                ├── suspicion_gauge.dart
-                └── behavioral_flags_list.dart
+                ├── code_workspace_panel.dart
+                └── security_metrics_panel.dart
 ```
 
 ---
@@ -204,6 +222,43 @@ suspicion reports.
 ### `GET /health` — Health Check
 
 Returns `{ "status": "ok", "timestamp": "..." }`
+
+---
+
+## 🗄️ MongoDB MCP Tools — 5 Core Data Operations
+
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes 10 tools
+via `POST /tools/:toolName`. The five primary data tools are:
+
+### Tool 1: `store_test_suite`
+**Purpose:** Persist a generated assessment suite document.
+**Parameters:** `{ suite: GeneratedTestSuite }`
+**Returns:** `{ success: true, mongoDocumentId: string }`
+
+### Tool 2: `create_session` / `update_session_code`
+**Purpose:** Initialize a candidate assessment session and update submitted code.
+**Create parameters:** `{ candidateId, testSuiteId, metadata }`
+**Update parameters:** `{ sessionId, code }`
+
+### Tool 3: `append_micro_event` / `ingest_micro_events`
+**Purpose:** Ingest individual or batched micro-events (paste triggers,
+structural code shifts, token injections) into the session timeline.
+**Parameters (batch):** `{ events: MicroEvent[] }`
+**Returns:** `{ success: true, processedCount: number }`
+
+### Tool 4: `store_suspicion_report`
+**Purpose:** Store a Gemini-generated suspicion analysis against a session.
+**Parameters:** `{ report: SuspicionReport }`
+**Returns:** `{ success: true, mongoDocumentId: string }`
+
+### Tool 5: `get_session_review` / `get_candidate_report`
+**Purpose:** Aggregate the full review log — session metadata, code workspace,
+micro-event timeline, and suspicion reports — for the Flutter review panel.
+**Parameters:** `{ sessionId }` or `{ candidateId }`
+**Returns:** `{ session, events[], suspicionReports[] }`
+
+All tools route through the `MongoStore` class (`mongo-client.ts`) using the
+MongoDB Node.js native driver with Atlas connection pooling.
 
 ---
 
