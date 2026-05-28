@@ -280,7 +280,7 @@ Apache 2.0 — See [LICENSE](LICENSE) for full text.
 
 ## 🎥 Submission Assets
 
-- **Repository**: [github.com/Bilal-Lodhi/testgorilla-clone](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon)
+- **Repository**: [https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon)
 - **Demo Video**: Provided in the submission deliverables
 - **Live App**: Deployed via Google Cloud Run
 
