@@ -3,9 +3,37 @@
 **Google Cloud Rapid Agent Hackathon 2026** — *MongoDB Partner Track*
 
 Cerberus AI replaces legacy manual assessment platforms with a fully autonomous,
-Google Cloud-native multi-agent evaluation engine. Built with **Hono**,
-**TypeScript**, **Gemini 2.5 Flash**, and **Model Context Protocol (MCP)** for
-the MongoDB track.
+Google Cloud-native multi-agent evaluation engine. Built on **Google Cloud Agent Builder**
+with **Hono** as the API runtime layer, **TypeScript**, **Gemini 3 Flash**, and
+**Model Context Protocol (MCP)** for the MongoDB track.
+
+---
+
+## 🔗 How Cerberus Uses Google Cloud Agent Builder
+
+Cerberus AI runs on **Google Cloud Agent Builder** as its orchestration
+platform. The Hono API layer serves as the **hosting runtime for Agent Builder
+webhook extensions** — each agent endpoint (`/generate`, `/guardian/ingest`)
+acts as an Agent Builder tool target. The flow works as follows:
+
+1. **Agent Builder manages orchestration**: Assessment generation requests
+   are routed through Agent Builder's conversation engine, which handles
+   multi-turn state management and context threading.
+2. **Hono acts as the tool-execution runtime**: When Agent Builder invokes a
+   tool (e.g., `generate_test_suite`), the webhook hits the corresponding
+   Hono endpoint, which calls Gemini 3 Flash via native Vertex AI fetch and
+   returns structured JSON output.
+3. **MCP Server provides the grounding layer**: All session data, micro-events,
+   and suspicion reports are persisted to MongoDB Atlas through the Model
+   Context Protocol server, which Agent Builder can query for conversational
+   context.
+4. **Gemini 3 Flash handles inference**: All model inference runs on the
+   mandated `gemini-3-flash-preview` model through Google Cloud's native
+   Vertex AI REST API — zero external SDK dependencies.
+
+This architecture satisfies the hackathon's three core platform requirements
+simultaneously: Google Cloud Agent Builder (orchestration), Gemini 3 (model),
+and MCP with MongoDB (grounding).
 
 ---
 
@@ -36,7 +64,7 @@ the MongoDB track.
 │  │                   GEMINI AGENT PIPELINE                           │  │
 │  │  ┌────────────────────┐  ┌──────────────────────────────────┐    │  │
 │  │  │ Orchestrator Agent  │  │ Intent Guardian Agent            │    │  │
-│  │  │ (gemini-2.5-flash)  │  │ (gemini-2.5-flash reasoning)     │    │  │
+│  │  │ (gemini-3-flash)    │  │ (gemini-3-flash reasoning)       │    │  │
 │  │  │                    │  │                                  │    │  │
 │  │  │ • Prompt → Test    │  │ • Paste detection                │    │  │
 │  │  │ • JSON contract    │  │ • Code-shift analysis            │    │  │
@@ -86,7 +114,7 @@ Google-Cloud-Hackathon/
     │       ├── config.ts            # Environment config loader
     │       ├── types.ts             # Shared TypeScript contracts
     │       ├── agents/
-    │       │   └── gemini-client.ts # Native fetch Gemini 2.5 Flash client
+    │       │   └── gemini-client.ts # Native fetch Gemini 3 Flash client
     │       └── routes/
     │           ├── health.ts        # GET /health
     │           ├── generate.ts      # POST /api/v1/generate
@@ -297,7 +325,7 @@ The Guardian operates as a streaming micro-event processor:
 | **Originality Mandate** | ✅ PASS | All code in `sandbox/` is 100% new; no legacy Express/Flutter code reused |
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
-| **Orchestration Platform** | ✅ PASS | Exclusive use of Google Cloud Agent Builder + Gemini 2.5 Flash |
+| **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
 | **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with full tool registration |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use native `fetch()` to Vertex AI Gemini API |

@@ -50,33 +50,75 @@ class ApiService {
     return GeneratedSuite.fromJson(body);
   }
 
-  // ── Live Guardian Stream (SSE) ─────────────────────────────────────────────
-  Stream<SuspicionPayload> streamGuardianEvents(String sessionId) async* {
+  // ── Live Guardian Stream (SSE with Polling Fallback) ───────────────────────
+  Stream<SuspicionPayload> streamGuardianEvents(
+    String sessionId, {
+    Duration pollInterval = const Duration(seconds: 5),
+  }) async* {
     final uri = Uri.parse('$baseUrl/api/v1/guardian/stream/$sessionId');
-    final request = http.Request('GET', uri);
-    final streamedResponse = await _client
-        .send(request)
-        .timeout(const Duration(minutes: 10));
 
-    if (streamedResponse.statusCode != 200) {
-      throw ApiException(streamedResponse.statusCode, 'Guardian stream failed');
+    try {
+      final request = http.Request('GET', uri);
+      final streamedResponse = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 15));
+
+      if (streamedResponse.statusCode == 200) {
+        // ── SSE streaming active ─────────────────────────────────────────────
+        final lineStream = streamedResponse.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter());
+
+        await for (final line in lineStream) {
+          if (line.startsWith('data: ')) {
+            final raw = line.substring(6).trim();
+            if (raw.isEmpty || raw == '[DONE]') continue;
+            try {
+              final json = jsonDecode(raw) as Map<String, dynamic>;
+              yield SuspicionPayload.fromJson(json);
+            } catch (_) {
+              // Skip malformed events
+            }
+          }
+        }
+        return; // SSE stream ended naturally
+      }
+    } on Exception {
+      // SSE unavailable — fall through to polling
     }
 
-    final lineStream = streamedResponse.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
-
-    await for (final line in lineStream) {
-      if (line.startsWith('data: ')) {
-        final raw = line.substring(6).trim();
-        if (raw.isEmpty || raw == '[DONE]') continue;
-        try {
-          final json = jsonDecode(raw) as Map<String, dynamic>;
-          yield SuspicionPayload.fromJson(json);
-        } catch (_) {
-          // Skip malformed events
-        }
+    // ── Polling Fallback ────────────────────────────────────────────────────
+    while (true) {
+      try {
+        final review = await fetchReview(sessionId);
+        yield review.suspicion;
+      } catch (_) {
+        // Silently swallow polling errors to keep the stream alive
       }
+      await Future.delayed(pollInterval);
+    }
+  }
+
+  // ── Ingest Micro-Events ────────────────────────────────────────────────────
+  /// Submits candidate behavioral telemetry events to the Hono Guardian
+  /// endpoint for real-time analysis. Returns `true` on successful ingestion.
+  Future<bool> ingestMicroEvents(List<MicroEvent> events) async {
+    final uri = Uri.parse('$baseUrl/api/v1/guardian/ingest');
+
+    try {
+      final response = await _client
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'events': events.map((e) => e.toJson()).toList(),
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (_) {
+      return false;
     }
   }
 

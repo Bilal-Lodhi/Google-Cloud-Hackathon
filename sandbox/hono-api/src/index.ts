@@ -10,7 +10,7 @@
  *   3. GET  /api/v1/sessions/:id/review — Interactive Analytical Review Log
  *
  * Architecture:
- *   Hono (routing) → GeminiClient (native fetch to Gemini 2.5 Flash)
+ *   Hono (routing) → GeminiClient (native fetch to Gemini 3 Flash Preview)
  *                  → MCP Server (MongoDB Atlas persistence layer)
  *
  * Zero legacy dependencies. Pure TypeScript + native Web APIs.
@@ -114,7 +114,7 @@ if (isMainModule) {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║  🦍 Gorilla Agent Ecosystem v1.0.0                         ║
-║  Google Cloud Agent Builder | Gemini 2.5 Flash              ║
+║  Google Cloud Agent Builder | Gemini 3 Flash Preview        ║
 ║  MCP Track: MongoDB Atlas                                   ║
 ║─────────────────────────────────────────────────────────────║
 ║  Health:  http://localhost:${config.port}/health                   ║

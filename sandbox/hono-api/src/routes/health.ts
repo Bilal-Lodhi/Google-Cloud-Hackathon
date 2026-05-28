@@ -13,7 +13,7 @@ healthRouter.get("/", (c) => {
     service: "gorilla-agent-ecosystem",
     version: "1.0.0",
     platform: "Google Cloud Run",
-    modelProvider: "Gemini 2.5 Flash (Vertex AI / Gemini API)",
+    modelProvider: "Gemini 3 Flash Preview (Vertex AI / Gemini API)",
     mcpTrack: "MongoDB",
     features: {
       autonomousTestGeneration: "/api/v1/generate",

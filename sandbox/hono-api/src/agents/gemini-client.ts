@@ -1,5 +1,5 @@
 /**
- * Gemini 2.5 Flash Client — Native Google Cloud fetch bindings.
+ * Gemini 3 Flash Client — Native Google Cloud fetch bindings.
  *
  * Features:
  *   - Native global fetch() — zero SDK dependencies (HACKATHON_RULES §2 Mandate)
@@ -29,7 +29,7 @@ const RETRY_CONFIG = {
   /** HTTP status codes eligible for retry */
   retryableStatuses: new Set([429, 500, 502, 503, 504]),
   /** Per-request timeout in ms */
-  requestTimeoutMs: 40_000, // Gemini Flash responses can be large; 40 s covers 8k tokens
+  requestTimeoutMs: 40_000, // Gemini 3 Flash responses can be large; 40 s covers 8k tokens
 } as const;
 
 // ─── Error Types ──────────────────────────────────────────────────
@@ -448,7 +448,7 @@ You MUST output valid JSON conforming to this exact schema:
   "metadata": {
     "suiteId": "<uuid-v4>",
     "generatedAt": "<ISO-8601>",
-    "modelVersion": "gemini-2.5-flash",
+    "modelVersion": "gemini-3-flash-preview",
     "promptFingerprint": "<sha256>",
     "tokenUsage": { "promptTokens": 0, "completionTokens": 0, "totalTokens": 0 }
   },

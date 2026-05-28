@@ -4,7 +4,7 @@ import '../services/api_service.dart';
 
 /// ─── Cerberus AI — Generate Provider ────────────────────────────────────────
 /// Holds the state for the Autonomous Test Suite Generator feature.
-/// Sends a text prompt to the Orchestrator Agent (Gemini 2.5 Flash) and
+/// Sends a text prompt to the Orchestrator Agent (Gemini 3 Flash Preview) and
 /// receives a fully structured competency-based assessment.
 
 class GenerateProvider extends ChangeNotifier {

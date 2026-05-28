@@ -67,6 +67,12 @@ class GuardianProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Submits candidate behavioral telemetry events for server-side analysis.
+  /// Returns `true` if the events were accepted by the Hono Guardian endpoint.
+  Future<bool> ingestEvents(List<MicroEvent> events) {
+    return _api.ingestMicroEvents(events);
+  }
+
   @override
   void dispose() {
     stopStreaming();

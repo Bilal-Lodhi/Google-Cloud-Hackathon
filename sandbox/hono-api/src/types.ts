@@ -36,7 +36,7 @@ export interface GeneratedTestSuite {
 export interface SuiteMetadata {
   suiteId: string;
   generatedAt: string;          // ISO-8601
-  modelVersion: string;         // e.g. "gemini-2.5-flash"
+  modelVersion: string;         // e.g. "gemini-3-flash-preview"
   promptFingerprint: string;    // SHA-256 of the input prompt
   tokenUsage: TokenUsageStats;
 }
@@ -194,7 +194,7 @@ export interface PlagiarismMatch {
   sourceSnippet: string;
   candidateSnippet: string;
   similarityScore: number;
-  sourceLabel: string;           // e.g. "gemini-2.5-flash-completion", "github-public-repo"
+  sourceLabel: string;           // e.g. "gemini-3-flash-preview-completion", "github-public-repo"
 }
 
 export interface BehavioralAnomaly {

@@ -42,7 +42,7 @@ export function loadConfig(): AppConfig {
 
   const gemini: GeminiConfig = {
     apiKey: process.env["GEMINI_API_KEY"] ?? "",
-    model: process.env["GEMINI_MODEL"] ?? "gemini-2.5-flash",
+    model: process.env["GEMINI_MODEL"] ?? "gemini-3-flash-preview",
     region: process.env["GEMINI_REGION"] ?? "us-central1",
     maxOutputTokens: parseInt(process.env["GEMINI_MAX_OUTPUT_TOKENS"] ?? "8192", 10),
     temperature: parseFloat(process.env["GEMINI_TEMPERATURE"] ?? "0.2"),

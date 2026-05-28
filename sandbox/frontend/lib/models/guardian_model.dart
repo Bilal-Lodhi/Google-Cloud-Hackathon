@@ -59,6 +59,13 @@ class MicroEvent {
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'event_type': eventType,
+    'timestamp': timestamp,
+    'evidence': evidence,
+    'confidence': confidence,
+  };
 }
 
 /// Aggregated review record combining the security timeline with the

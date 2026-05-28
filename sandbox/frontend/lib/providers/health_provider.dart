@@ -4,7 +4,7 @@ import '../services/api_service.dart';
 
 /// ─── Cerberus AI — Health Provider ──────────────────────────────────────────
 /// Polls the Hono API gateway health endpoint and surfaces connectivity
-/// status for MongoDB, Gemini, and the MCP server.
+/// status for MongoDB, Gemini 3 Flash Preview, and the MCP server.
 
 class HealthProvider extends ChangeNotifier {
   final ApiService _api;

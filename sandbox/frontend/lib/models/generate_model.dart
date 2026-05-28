@@ -61,7 +61,7 @@ class SuiteMetadata {
 
   factory SuiteMetadata.fromJson(Map<String, dynamic> json) {
     return SuiteMetadata(
-      modelUsed: json['model_used'] as String? ?? 'gemini-2.5-flash',
+      modelUsed: json['model_used'] as String? ?? 'gemini-3-flash-preview',
       generatedAt: json['generated_at'] as String? ?? '',
       tokenCount: json['token_count'] as int? ?? 0,
       schemaVersion: json['schema_version'] as String? ?? '1.0',

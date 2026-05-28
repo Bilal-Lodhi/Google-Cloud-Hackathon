@@ -3,7 +3,7 @@
  * Feature 1 — AUTONOMOUS TEST SUITE GENERATOR
  *
  * Accepts a single text prompt and delegates to the Orchestrator Agent
- * backed by Gemini 2.5 Flash. Returns a fully structured assessment suite
+ * backed by Gemini 3 Flash Preview. Returns a fully structured assessment suite
  * with metadata, competencies, problems, and hidden testing matrices.
  */
 
