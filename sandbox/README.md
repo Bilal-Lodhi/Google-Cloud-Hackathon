@@ -55,8 +55,9 @@ and MCP with MongoDB (grounding).
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                     HONO API LAYER (Cloud Run)                          │
 │  ┌─────────────────┐ ┌──────────────────┐ ┌────────────────────────┐   │
-│  │ POST /generate  │ │ POST /guardian   │ │ GET /sessions/:id      │   │
-│  │  Test Suite Gen │ │  /ingest         │ │      /review           │   │
+│  │ POST /generate  │ │ POST /guardian   │ │ GET /sessions          │   │
+│  │  Test Suite Gen │ │  /ingest         │ │ GET /sessions/:id      │   │
+│  │                 │ │                  │ │      /review           │   │
 │  └───────┬─────────┘ └───────┬──────────┘ └───────────┬────────────┘   │
 │          │                   │                        │                │
 │          ▼                   ▼                        ▼                │
@@ -241,6 +242,26 @@ Streams micro-events to Gemini for real-time integrity analysis.
 
 **Response:** `GuardianAnalysisResult` with `overallSuspicionScore`, `verdict`,
 and detailed factor breakdown.
+
+### `GET /api/v1/sessions` — List All Sessions (Flutter Drawer)
+
+Returns a summary list of all candidate assessment sessions. Used by the
+Flutter review panel drawer to populate the session list.
+
+```json
+// Response
+{
+  "success": true,
+  "data": [
+    {
+      "sessionId": "ses-clean-001",
+      "candidateId": "cand-xyz",
+      "lastEventTimestamp": "2026-05-28T23:40:00.000Z",
+      "eventCount": 12
+    }
+  ]
+}
+```
 
 ### `GET /api/v1/sessions/:sessionId/review` — Review Log
 

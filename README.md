@@ -83,8 +83,9 @@ and MCP with MongoDB (grounding).
 │                     HONO API LAYER (Cloud Run)                       │
 │  ┌──────────────────┐ ┌──────────────────┐ ┌─────────────────────┐  │
 │  │ POST /api/v1     │ │ POST /api/v1     │ │ GET /api/v1         │  │
-│  │   /generate      │ │   /guardian      │ │   /sessions/:id     │  │
-│  │                  │ │   /ingest        │ │   /review           │  │
+│  │   /generate      │ │   /guardian      │ │   /sessions         │  │
+│  │                  │ │   /ingest        │ │   /sessions/:id     │  │
+│  │                  │ │                  │ │   /review           │  │
 │  │  Google Cloud    │ │                  │ │                     │  │
 │  │  Agent Builder   │ │  Security        │ │  Audit Trail        │  │
 │  │  Webhook Target  │ │  Validation      │ │  + Analytics        │  │
@@ -254,7 +255,7 @@ node start-services.js
 ```bash
 cd frontend
 flutter pub get
-flutter run -d chrome  # or your preferred platform
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000
 ```
 
 ### 6. Deploy to Cloud Run
@@ -303,6 +304,26 @@ Streams micro-events to Gemini 3 Flash for real-time integrity analysis.
 }
 
 // Response: GuardianAnalysisResult { overallSuspicionScore, verdict, factors[] }
+```
+
+### `GET /api/v1/sessions` — List All Sessions (Flutter Drawer)
+
+Returns a summary list of all candidate assessment sessions. Used by the
+Flutter review panel drawer to populate the session list.
+
+```json
+// Response
+{
+  "success": true,
+  "data": [
+    {
+      "sessionId": "ses-clean-001",
+      "candidateId": "cand-xyz",
+      "lastEventTimestamp": "2026-05-28T23:40:00.000Z",
+      "eventCount": 12
+    }
+  ]
+}
 ```
 
 ### `GET /api/v1/sessions/:sessionId/review` — Review Log
