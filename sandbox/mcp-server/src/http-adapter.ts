@@ -98,6 +98,11 @@ const tools: Record<string, ToolHandler> = {
     return { success: true, reports };
   },
 
+  list_sessions: async () => {
+    const sessions = await store.listSessions();
+    return { success: true, data: sessions };
+  },
+
   health_check: async () => {
     const isHealthy = await store.ping();
     return {

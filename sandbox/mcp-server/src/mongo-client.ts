@@ -128,6 +128,26 @@ export class MongoStore {
     );
   }
 
+  async listSessions(): Promise<Document[]> {
+    return this.collection("sessions")
+      .find(
+        {},
+        {
+          projection: {
+            sessionId: 1,
+            candidateId: 1,
+            assessmentId: 1,
+            status: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            _id: 0,
+          },
+        }
+      )
+      .sort({ createdAt: -1 })
+      .toArray();
+  }
+
   // ─── Micro-Event Operations ────────────────────────────────────
 
   async ingestMicroEvents(events: Document[]): Promise<number> {

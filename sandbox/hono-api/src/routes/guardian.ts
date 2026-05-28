@@ -5,6 +5,8 @@
  * Streaming micro-event ingestion handler. Accepts batches of micro-inputs
  * (paste triggers, code deltas, tab switches) and delegates to the Intent
  * Guardian Agent backed by Gemini for semantic plagiarism detection.
+ *
+ * Sessions are persisted to MongoDB via the MCP HTTP adapter sidecar.
  */
 
 import { Hono } from "hono";
@@ -15,6 +17,9 @@ import { loadConfig } from "../config.js";
 const guardianRouter = new Hono();
 const config = loadConfig();
 const gemini = new GeminiClient(config);
+
+// MCP HTTP Adapter base URL (sidecar on port 3001)
+const MCP_BASE = process.env["MCP_URL"] ?? "http://localhost:3001";
 
 // ─── In-Memory Session Store (replaced by MongoDB via MCP in production) ──
 
@@ -46,26 +51,92 @@ guardianRouter.post("/ingest", async (c) => {
     );
   }
 
+  // Determine the primary session from the first event
+  const primaryEvent = body.events[0];
+  const sessionId = primaryEvent?.sessionId;
+  if (!sessionId) {
+    return c.json({ success: false, error: "Each event must contain a sessionId" }, 400);
+  }
+
   const processedCount = body.events.length;
   let suspicionPayload: SuspicionPayload | null = null;
   let alertTriggered = false;
 
   try {
+    // ── Ensure session exists in MongoDB (auto-create if missing) ──
+    try {
+      const checkRes = await fetch(`${MCP_BASE}/tools/get_session_review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (checkRes.ok) {
+        const checkData = (await checkRes.json()) as { success: boolean; session?: unknown };
+        if (!checkData.success || !checkData.session) {
+          // Session doesn't exist in MongoDB — create it
+          console.log(`[guardian] Session '${sessionId}' not found in MongoDB, creating...`);
+          const createRes = await fetch(`${MCP_BASE}/tools/create_session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              candidateId: primaryEvent.candidateId ?? "unknown",
+              assessmentId: primaryEvent.assessmentId ?? "unknown",
+            }),
+          });
+          if (!createRes.ok) {
+            console.warn(`[guardian] Failed to create session in MongoDB: ${await createRes.text()}`);
+          } else {
+            console.log(`[guardian] Session '${sessionId}' created in MongoDB`);
+          }
+        }
+      } else {
+        // MCP unreachable — attempt to create session
+        console.warn(`[guardian] MCP check failed for session '${sessionId}', attempting creation...`);
+        const createRes = await fetch(`${MCP_BASE}/tools/create_session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            candidateId: primaryEvent.candidateId ?? "unknown",
+            assessmentId: primaryEvent.assessmentId ?? "unknown",
+          }),
+        });
+        if (!createRes.ok) {
+          console.warn(`[guardian] Failed to create session in MongoDB: ${await createRes.text()}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[guardian] Error ensuring MongoDB session exists:`, err);
+      // Non-fatal — continue with in-memory processing
+    }
+
+    // ── Persist micro-events to MongoDB via MCP ──
+    try {
+      const eventsRes = await fetch(`${MCP_BASE}/tools/ingest_micro_events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events: body.events }),
+      });
+      if (!eventsRes.ok) {
+        console.warn(`[guardian] Failed to persist events to MongoDB: ${await eventsRes.text()}`);
+      }
+    } catch (err) {
+      console.warn(`[guardian] Error persisting events to MongoDB:`, err);
+      // Non-fatal — continue with in-memory processing
+    }
+
+    // ── In-memory processing (for real-time guardian analysis) ──
+
     // Aggregate events into session
     for (const event of body.events) {
       processEvent(event);
     }
 
-    // Determine the primary session from the first event
-    const primaryEvent = body.events[0];
-    const sessionId = primaryEvent?.sessionId;
-    if (!sessionId) {
-      return c.json({ success: false, error: "Each event must contain a sessionId" }, 400);
-    }
-
     const session = sessionStore.get(sessionId);
     if (!session) {
-      return c.json({ success: false, error: `Session ${sessionId} not found` }, 404);
+      return c.json({ success: false, error: `Session ${sessionId} not found after processing` }, 404);
     }
 
     // Check if suspicion analysis should be triggered
@@ -106,6 +177,17 @@ guardianRouter.post("/ingest", async (c) => {
       sessionStore.set(sessionId, session);
 
       alertTriggered = suspicionPayload.overallScore > 50;
+
+      // ── Persist suspicion report to MongoDB ──
+      try {
+        await fetch(`${MCP_BASE}/tools/store_suspicion_report`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ report: suspicionPayload }),
+        });
+      } catch (err) {
+        console.warn(`[guardian] Error persisting suspicion report:`, err);
+      }
     }
 
     const response: IngestMicroEventResponse = {

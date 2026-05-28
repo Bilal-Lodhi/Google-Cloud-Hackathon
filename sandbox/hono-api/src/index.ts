@@ -76,6 +76,7 @@ app.notFound((c) => {
         "POST /api/v1/generate",
         "POST /api/v1/guardian/ingest",
         "GET  /api/v1/guardian/sessions/:sessionId",
+        "GET  /api/v1/sessions",
         "GET  /api/v1/sessions/:sessionId",
       ],
     },
