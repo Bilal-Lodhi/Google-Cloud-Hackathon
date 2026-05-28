@@ -1,7 +1,9 @@
 /**
  * Environment configuration for the Gorilla Agent Hono API.
- * All values sourced from Cloud Run environment variables (no .env in production).
+ * Uses dotenv for local development; Cloud Run injects env vars in production.
  */
+
+import "dotenv/config";
 
 export interface AppConfig {
   port: number;

@@ -1,8 +1,32 @@
+# ─── Dependencies ──────────────────────────────────────────
 node_modules/
+
+# ─── Build output ──────────────────────────────────────────
 dist/
 build/
-.env
-*.log
 .dart_tool/
 .packages
-build/
+
+# ─── Environment secrets (NEVER commit .env files) ────────
+.env
+**/.env
+*.env
+!*.env.example
+!*.env.template
+!*.env.sample
+
+# ─── Generated documentation (authored by build tools / AI) ─
+*.md
+!README.md
+!LICENSE.md
+!CONTRIBUTING.md
+!CHANGELOG.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+
+# ─── OS & editor artifacts ────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
