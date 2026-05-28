@@ -9,8 +9,13 @@
     "sandbox/mcp-server"
   ],
   "scripts": {
-    "dev:api": "npm run dev --workspace=sandbox/hono-api",
-    "build:api": "npm run build --workspace=sandbox/hono-api",
+    "build": "npm run build -w sandbox/hono-api && npm run build -w sandbox/mcp-server",
+    "build:api": "npm run build -w sandbox/hono-api",
+    "build:mcp": "npm run build -w sandbox/mcp-server",
+    "dev:api": "npm run dev -w sandbox/hono-api",
+    "dev:mcp": "npm run dev -w sandbox/mcp-server",
+    "dev:backend": "npm run build && node sandbox/start-services.js",
+    "start": "node sandbox/start-services.js",
     "deploy": "npm run deploy --workspace=sandbox/hono-api"
   },
   "engines": {
