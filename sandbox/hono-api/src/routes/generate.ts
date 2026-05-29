@@ -123,7 +123,7 @@ generateRouter.post("/", async (c) => {
     );
     const suiteStartMs = Date.now();
 
-    const suite = await gemini.generateTestSuite(enrichedPrompt, body.roleContext);
+    const suite = await gemini.generateTestSuite(enrichedPrompt, body.roleContext, problemCount);
 
     const suiteElapsed = Date.now() - suiteStartMs;
     console.log(

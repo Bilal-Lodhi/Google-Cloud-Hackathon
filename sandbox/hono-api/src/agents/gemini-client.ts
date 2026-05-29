@@ -102,15 +102,16 @@ export class GeminiClient {
    */
   async generateTestSuite(
     prompt: string,
-    roleContext: string
+    roleContext: string,
+    problemCount = 5
   ): Promise<GeneratedTestSuite> {
     console.log("[Gemini Ingestion] [generateTestSuite] Initiating request to model...");
-    console.log(`[Gemini Ingestion] [generateTestSuite] Prompt length=${prompt.length} roleContext="${roleContext}"`);
+    console.log(`[Gemini Ingestion] [generateTestSuite] Prompt length=${prompt.length} roleContext="${roleContext}" problemCount=${problemCount}`);
 
     const orchestratorPrompt: OrchestratorPrompt = {
       prompt,
       roleContext,
-      problemCount: 10, // default; overridden in the enriched prompt upstream
+      problemCount,
       difficultyMix: { beginner: 0.33, intermediate: 0.34, advanced: 0.33 },
     };
 
@@ -388,6 +389,16 @@ export class GeminiClient {
         maxOutputTokens: this.maxOutputTokens,
         topP: 0.95,
         topK: 40,
+        /**
+         * Constrained JSON decoding — instructs Gemini 3 Flash Preview
+         * to emit ONLY valid JSON tokens. This is the single most
+         * impactful guard against unquoted property names, trailing
+         * commas, single quotes, and other LLM JSON malformations.
+         *
+         * Available since gemini-1.5-pro and fully supported on
+         * gemini-3-flash-preview (the mandated model).
+         */
+        responseMimeType: "application/json",
       },
       safetySettings: [
         {
@@ -451,6 +462,33 @@ export class GeminiClient {
 
       const candidate = candidates[0];
       const finishReason = candidate["finishReason"] as string | undefined;
+
+      // ── CRITICAL: Detect response truncation ─────────────────
+      // When the model hits maxOutputTokens before completing the
+      // JSON structure, the response is truncated and cannot be
+      // repaired. We must surface this clearly.
+      if (finishReason === "MAX_TOKENS") {
+        const content = candidate["content"] as Record<string, unknown> | undefined;
+        const parts = content?.["parts"] as Array<Record<string, unknown>> | undefined;
+        const partialText =
+          parts
+            ?.map((p) => (p["text"] as string) ?? "")
+            .filter((t) => t.length > 0)
+            .join("\n") ?? "";
+        const totalChars = partialText.length;
+        const lastChars = partialText.substring(Math.max(0, totalChars - 300));
+        console.error(
+          `[Gemini Ingestion] [extractText] RESPONSE TRUNCATED — finishReason=MAX_TOKENS. ` +
+            `maxOutputTokens=${this.maxOutputTokens}, received ${totalChars} chars before truncation. ` +
+            `Last 300 chars:\n${lastChars}`
+        );
+        throw new Error(
+          `Gemini response was truncated at ${totalChars} chars ` +
+            `(maxOutputTokens=${this.maxOutputTokens}). ` +
+            `Increase GEMINI_MAX_OUTPUT_TOKENS in .env or reduce response size requirements.`
+        );
+      }
+
       if (finishReason && finishReason !== "STOP") {
         console.warn(
           `[Gemini Ingestion] [extractText] Non-STOP finish reason: "${finishReason}"`
@@ -501,26 +539,63 @@ export class GeminiClient {
    * Parses the raw Gemini text response into a {@link GeneratedTestSuite}.
    * Expects the model to return a JSON block (optionally wrapped in
    * markdown code fences).
+   *
+   * Includes a JSON repair fallback for LLM-generated malformed JSON
+   * (unquoted property names, trailing commas, single-quoted strings, etc.).
    */
   private parseTestSuiteResponse(rawText: string): GeneratedTestSuite {
-    // Strip markdown code fences if present
+    // Strip ALL markdown code fences (any language tag) if present.
+    // LLMs frequently emit explanatory markdown with code blocks like
+    // ```javascript, ```python, or just ``` before the actual JSON.
     let jsonText = rawText.trim();
-    const fenceMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) {
-      jsonText = fenceMatch[1].trim();
-    }
+    jsonText = this.stripMarkdownFences(jsonText);
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonText) as Record<string, unknown>;
     } catch (parseErr) {
+      const origError = (parseErr as Error).message;
+
+      // Log the context around the failure position
+      const posMatch = origError.match(/position (\d+)/);
+      const failurePos = posMatch ? parseInt(posMatch[1], 10) : 0;
+      const contextStart = Math.max(0, failurePos - 200);
+      const contextEnd = Math.min(jsonText.length, failurePos + 200);
       console.error(
-        "[Gemini Ingestion] [parseTestSuite] JSON parse failure. Raw text (first 500 chars):",
+        `[Gemini Ingestion] [parseTestSuite] JSON parse failure at position ${failurePos}. ` +
+          `Context around error:\n...${jsonText.substring(contextStart, contextEnd)}...`
+      );
+      console.error(
+        `[Gemini Ingestion] [parseTestSuite] Raw text head (first 500 chars):`,
         rawText.substring(0, 500)
       );
-      throw new Error(
-        `Failed to parse test suite JSON: ${(parseErr as Error).message}`
-      );
+
+      // Attempt JSON repair for common LLM output quirks
+      console.log("[Gemini Ingestion] [parseTestSuite] Attempting JSON repair...");
+      try {
+        const repaired = this.repairJson(jsonText);
+        parsed = JSON.parse(repaired) as Record<string, unknown>;
+        console.log("[Gemini Ingestion] [parseTestSuite] JSON repair SUCCESS — proceeding with repaired payload.");
+      } catch (repairErr) {
+        console.error(
+          "[Gemini Ingestion] [parseTestSuite] JSON repair also failed:",
+          (repairErr as Error).message
+        );
+        // Try one more: extract just the outermost JSON object
+        try {
+          const extracted = this.extractJsonObject(jsonText);
+          parsed = JSON.parse(extracted) as Record<string, unknown>;
+          console.log("[Gemini Ingestion] [parseTestSuite] JSON extraction SUCCESS after repair failure.");
+        } catch (extractErr) {
+          console.error(
+            "[Gemini Ingestion] [parseTestSuite] All JSON recovery strategies exhausted."
+          );
+          throw new Error(
+            `Failed to parse test suite JSON: ${origError}. ` +
+              `Repair also failed: ${(repairErr as Error).message}`
+          );
+        }
+      }
     }
 
     const metadata = parsed["metadata"] as Record<string, unknown> | undefined;
@@ -615,25 +690,48 @@ export class GeminiClient {
 
   /**
    * Parses the raw Gemini text response into a {@link SuspicionPayload}.
+   * Includes JSON repair fallback for LLM-generated malformed JSON.
    */
   private parseSuspicionResponse(rawText: string): SuspicionPayload {
     let jsonText = rawText.trim();
-    const fenceMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) {
-      jsonText = fenceMatch[1].trim();
-    }
+    jsonText = this.stripMarkdownFences(jsonText);
 
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonText) as Record<string, unknown>;
     } catch (parseErr) {
+      const origError = (parseErr as Error).message;
+      const posMatch = origError.match(/position (\d+)/);
+      const failurePos = posMatch ? parseInt(posMatch[1], 10) : 0;
+      const contextStart = Math.max(0, failurePos - 200);
+      const contextEnd = Math.min(jsonText.length, failurePos + 200);
       console.error(
-        "[Gemini Ingestion] [parseSuspicion] JSON parse failure. Raw text (first 500 chars):",
-        rawText.substring(0, 500)
+        `[Gemini Ingestion] [parseSuspicion] JSON parse failure at position ${failurePos}. ` +
+          `Context around error:\n...${jsonText.substring(contextStart, contextEnd)}...`
       );
-      throw new Error(
-        `Failed to parse suspicion JSON: ${(parseErr as Error).message}`
-      );
+
+      // Attempt JSON repair
+      console.log("[Gemini Ingestion] [parseSuspicion] Attempting JSON repair...");
+      try {
+        const repaired = this.repairJson(jsonText);
+        parsed = JSON.parse(repaired) as Record<string, unknown>;
+        console.log("[Gemini Ingestion] [parseSuspicion] JSON repair SUCCESS.");
+      } catch (repairErr) {
+        console.error(
+          "[Gemini Ingestion] [parseSuspicion] JSON repair also failed:",
+          (repairErr as Error).message
+        );
+        try {
+          const extracted = this.extractJsonObject(jsonText);
+          parsed = JSON.parse(extracted) as Record<string, unknown>;
+          console.log("[Gemini Ingestion] [parseSuspicion] JSON extraction SUCCESS.");
+        } catch (extractErr) {
+          throw new Error(
+            `Failed to parse suspicion JSON: ${origError}. ` +
+              `Repair also failed: ${(repairErr as Error).message}`
+          );
+        }
+      }
     }
 
     return {
@@ -808,7 +906,300 @@ Generate a comprehensive suspicion report in JSON format. Be thorough but fair �
   }
 
   // ───────────────────────────────────────────────────────────────
-  // Utility
+  // JSON Repair Utility
+  // ───────────────────────────────────────────────────────────────
+
+  /**
+   * Attempts to repair common LLM-generated JSON malformations:
+   *
+   *   1. Unquoted property names:  { foo: "bar" }  →  { "foo": "bar" }
+   *   2. Single-quoted strings:    { "foo": 'bar' } →  { "foo": "bar" }
+   *   3. Trailing commas:          { "foo": "bar", } → { "foo": "bar" }
+   *   4. Missing closing braces/brackets (best-effort balancing)
+   *
+   * This is a best-effort heuristic — it cannot fix all possible
+   * malformations, but handles the most common LLM output failures.
+   */
+  private repairJson(text: string): string {
+    let repaired = text;
+
+    // ── Pass 0: Escape literal newlines inside JSON strings ──
+    // LLMs frequently emit unescaped newlines inside string values
+    // (e.g., multi-line "body" fields), which breaks JSON parsing
+    // with "Unterminated string in JSON". We detect a `"` that
+    // opens on one line and closes on a later line, and replace
+    // the literal CR/LF with the `\n` escape sequence.
+    repaired = this.escapeNewlinesInStrings(repaired);
+
+    // ── Pass 1a: Quote unquoted property names at line starts ──
+    // Catches patterns like:
+    //         title: "foo"
+    //   (key at start of line after optional whitespace, not already quoted)
+    // Uses the /m flag so ^ matches after every newline.
+    repaired = repaired.replace(
+      /^(\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/gm,
+      (_match, indent: string, key: string, colon: string) => {
+        // Guard: skip if this token is already inside a quoted string context.
+        // Check that the character immediately before the key is NOT a quote.
+        // Since we only match at line starts, the preceding char is always \n
+        // (or start-of-string), so this is safe against false positives inside
+        // multi-line string values (extremely rare in JSON).
+        return `${indent}"${key}"${colon}`;
+      }
+    );
+
+    // ── Pass 1b: Quote unquoted property names after { , [ ─────
+    // Handles same-line shorthand:  {"foo":1,target:2}  or array-of-objects:
+    //  [{name:"x"},...] where name follows [ or { on the same line.
+    // The character class [[{,\[] matches an opening bracket, comma, or
+    // opening square-bracket literal.
+    repaired = repaired.replace(
+      /([[{,\[]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g,
+      (_match, before: string, key: string, colon: string) => {
+        return `${before}"${key}"${colon}`;
+      }
+    );
+
+    // ── Pass 2: Convert single-quoted strings to double-quoted ──
+    // Only targets single-quoted values (not keys) — keys are already
+    // handled by Pass 1. Matches :  '...'  patterns.
+    repaired = repaired.replace(
+      /:\s*'([^']*)'/g,
+      (_match: string, inner: string) => {
+        // Escape any double quotes inside the single-quoted string
+        const escaped = inner.replace(/"/g, '\\"');
+        return `: "${escaped}"`;
+      }
+    );
+
+    // ── Pass 3: Remove trailing commas before } or ] ────────────
+    repaired = repaired.replace(/,(\s*[}\]])/g, "$1");
+
+    // ── Pass 4: Balance braces/brackets (best-effort) ───────────
+    repaired = this.balanceBraces(repaired);
+
+    return repaired;
+  }
+
+  /**
+   * Attempts to balance unmatched braces and brackets by appending
+   * missing closing delimiters at the end of the JSON string.
+   */
+  private balanceBraces(text: string): string {
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (const ch of text) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === "{") braceDepth++;
+      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+      else if (ch === "[") bracketDepth++;
+      else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    }
+
+    // Append missing closing brackets first, then braces
+    let result = text;
+    while (bracketDepth > 0) {
+      result += "]";
+      bracketDepth--;
+    }
+    while (braceDepth > 0) {
+      result += "}";
+      braceDepth--;
+    }
+    return result;
+  }
+
+  /**
+   * Detects and escapes literal newlines that fall inside JSON string
+   * values. An unescaped newline inside a JSON string is illegal per
+   * RFC 7159 and causes "Unterminated string in JSON" parse errors.
+   *
+   * Strategy: track whether we are inside a string and, if so,
+   * replace any literal \r\n or \n with the JSON escape sequence \n.
+   * We handle:
+   *   - Windows line endings: \r\n → \\n
+   *   - Unix line endings:    \n   → \\n
+   *
+   * IMPORTANT: The method returns the escaped string WITHOUT altering
+   * the surrounding quote context. Closing quotes on subsequent lines
+   * are preserved as-is.
+   */
+  private escapeNewlinesInStrings(text: string): string {
+    const result: string[] = [];
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+
+      if (escape) {
+        result.push(ch);
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\" && inString) {
+        result.push(ch);
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        result.push(ch);
+        continue;
+      }
+
+      // ── Handle literal newlines inside strings ──────────
+      if (inString && ch === "\r") {
+        // Windows-style: \r\n → consume both, emit \"\\n\"
+        result.push("\\n");
+        if (i + 1 < text.length && text[i + 1] === "\n") {
+          i++; // skip the \n
+        }
+        continue;
+      }
+
+      if (inString && ch === "\n") {
+        result.push("\\n");
+        continue;
+      }
+
+      result.push(ch);
+    }
+
+    // If we end while still "in string", that's a genuine unterminated
+    // string — but balanceBraces will handle it downstream.
+    return result.join("");
+  }
+
+  /**
+   * Strips only outermost markdown code-fence wrappers from the text.
+   *
+   * IMPORTANT: This method only removes fences at the VERY START and END of
+   * the raw text (e.g., when the entire response is wrapped in ```json ... ```).
+   * It does NOT attempt to strip fence blocks that appear inside the payload
+   * (e.g., code examples embedded in JSON string values).
+   *
+   * Approach:
+   * 1. If the trimmed text starts with ```json, strip that exact pair.
+   * 2. If it starts with ``` followed by any word char language tag (e.g.,
+   *    ```javascript, ```typescript), strip that pair — as long as there's
+   *    no leading text before the fence.
+   * 3. If it starts with ``` (no language tag), strip that pair.
+   * 4. Otherwise, return the text as-is.
+   *
+   * After fence stripping, the text is trimmed and any surrounding
+   * explanatory preamble/epilogue is removed by extracting the outermost
+   * JSON object.
+   */
+  private stripMarkdownFences(text: string): string {
+    const trimmed = text.trim();
+
+    // ── Case 1: ```json wrapper ────────────────────────────────────
+    const jsonFenceHead = /^```json\s*\n/;
+    if (jsonFenceHead.test(trimmed)) {
+      return this.extractFromOuterFence(trimmed, /^```json\s*\n/, /\n```\s*$/);
+    }
+
+    // ── Case 2: ```<anyLang> wrapper ───────────────────────────────
+    const langFenceHead = /^```[a-zA-Z]+\s*\n/;
+    if (langFenceHead.test(trimmed)) {
+      return this.extractFromOuterFence(trimmed, /^```[a-zA-Z]+\s*\n/, /\n```\s*$/);
+    }
+
+    // ── Case 3: ``` (no lang tag) wrapper ──────────────────────────
+    const bareFenceHead = /^```\s*\n/;
+    if (bareFenceHead.test(trimmed)) {
+      return this.extractFromOuterFence(trimmed, /^```\s*\n/, /\n```\s*$/);
+    }
+
+    // ── Fallback: Extract outermost JSON object ────────────────────
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      const objStart = Math.min(
+        trimmed.indexOf("{") === -1 ? Infinity : trimmed.indexOf("{"),
+        trimmed.indexOf("[") === -1 ? Infinity : trimmed.indexOf("[")
+      );
+      if (objStart !== Infinity) {
+        return this.extractJsonObject(trimmed.substring(objStart));
+      }
+    }
+
+    return trimmed;
+  }
+
+  /**
+   * Extracts content from between matching ``` fence markers.
+   * headRegex matches the opening fence, tailRegex matches the closing fence.
+   */
+  private extractFromOuterFence(
+    text: string,
+    headRegex: RegExp,
+    tailRegex: RegExp
+  ): string {
+    return text.replace(headRegex, "").replace(tailRegex, "").trim();
+  }
+
+  /**
+   * Last-resort strategy: find the outermost JSON object by locating
+   * the first `{` and the matching `}` using brace counting.
+   */
+  private extractJsonObject(text: string): string {
+    const firstBrace = text.indexOf("{");
+    if (firstBrace === -1) return text;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = firstBrace; i < text.length; i++) {
+      const ch = text[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          return text.substring(firstBrace, i + 1);
+        }
+      }
+    }
+
+    // If we never found the matching close, return from first brace to end
+    // (the balanceBraces call will have already tried to fix this)
+    return text.substring(firstBrace);
+  }
+
+  // ───────────────────────────────────────────────────────────────
+  // General Utility
   // ───────────────────────────────────────────────────────────────
 
   private sleep(ms: number): Promise<void> {
