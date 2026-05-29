@@ -6,6 +6,7 @@ dist/
 build/
 .dart_tool/
 .packages
+*.tsbuildinfo
 
 # ─── Environment secrets (NEVER commit .env files) ────────
 .env
