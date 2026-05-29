@@ -7,6 +7,14 @@
  * Guardian Agent backed by Gemini for semantic plagiarism detection.
  *
  * Sessions are persisted to MongoDB via the MCP HTTP adapter sidecar.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * ENTERPRISE HARDENING (2026-05-28):
+ *   - Every MCP HTTP call is wrapped in an isolated AbortController
+ *     timeout (MCP_TIMEOUT_MS) so that a slow MongoDB Atlas connection
+ *     never starves the ingestion loop.
+ *   - Deep observability telemetry logs at every pipeline milestone.
+ * ═══════════════════════════════════════════════════════════════════
  */
 
 import { Hono } from "hono";
@@ -18,8 +26,17 @@ const guardianRouter = new Hono();
 const config = loadConfig();
 const gemini = new GeminiClient(config);
 
-// MCP HTTP Adapter base URL (sidecar on port 3001)
+// ─── MCP Constants ──────────────────────────────────────────────
+
+/** MCP HTTP Adapter base URL (sidecar on port 3001). */
 const MCP_BASE = process.env["MCP_URL"] ?? "http://localhost:3001";
+
+/**
+ * Maximum time (ms) any single MCP fetch call is allowed to take.
+ * Exceeding this threshold aborts the request and falls through to
+ * the in-memory-only path so the ingestion pipeline stays responsive.
+ */
+const MCP_TIMEOUT_MS = 5_000;
 
 // ─── In-Memory Session Store (replaced by MongoDB via MCP in production) ──
 
@@ -42,9 +59,22 @@ const sessionStore = new Map<string, SessionState>();
 // ─── POST /api/v1/guardian/ingest ─────────────────────────────────
 
 guardianRouter.post("/ingest", async (c) => {
-  const body = await c.req.json<IngestMicroEventRequest>();
+  const requestId = crypto.randomUUID();
+  console.log(`[Guardian Route] [${requestId}] Incoming POST /api/v1/guardian/ingest`);
+
+  let body: IngestMicroEventRequest;
+  try {
+    body = await c.req.json<IngestMicroEventRequest>();
+  } catch (parseError) {
+    console.error(`[Guardian Route] [${requestId}] JSON parse failure:`, parseError);
+    return c.json(
+      { success: false, error: "Invalid JSON body", correlationId: requestId },
+      400
+    );
+  }
 
   if (!body.events || !Array.isArray(body.events) || body.events.length === 0) {
+    console.warn(`[Guardian Route] [${requestId}] Validation failed: empty/missing events array`);
     return c.json(
       { success: false, error: "Field 'events' must be a non-empty array" },
       400
@@ -55,6 +85,7 @@ guardianRouter.post("/ingest", async (c) => {
   const primaryEvent = body.events[0];
   const sessionId = primaryEvent?.sessionId;
   if (!sessionId) {
+    console.warn(`[Guardian Route] [${requestId}] Validation failed: missing sessionId in first event`);
     return c.json({ success: false, error: "Each event must contain a sessionId" }, 400);
   }
 
@@ -63,89 +94,41 @@ guardianRouter.post("/ingest", async (c) => {
   let alertTriggered = false;
 
   try {
-    // ── Ensure session exists in MongoDB (auto-create if missing) ──
-    try {
-      const checkRes = await fetch(`${MCP_BASE}/tools/get_session_review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
+    // ── Step 1: Ensure session exists in MongoDB (timeout-isolated) ──
+    console.log(`[Guardian Route] [${requestId}] Ensuring session ${sessionId} in MongoDB...`);
+    await ensureMongoSession(sessionId, primaryEvent, requestId);
 
-      if (checkRes.ok) {
-        const checkData = (await checkRes.json()) as { success: boolean; session?: unknown };
-        if (!checkData.success || !checkData.session) {
-          // Session doesn't exist in MongoDB — create it
-          console.log(`[guardian] Session '${sessionId}' not found in MongoDB, creating...`);
-          const createRes = await fetch(`${MCP_BASE}/tools/create_session`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId,
-              candidateId: primaryEvent.candidateId ?? "unknown",
-              assessmentId: primaryEvent.assessmentId ?? "unknown",
-            }),
-          });
-          if (!createRes.ok) {
-            console.warn(`[guardian] Failed to create session in MongoDB: ${await createRes.text()}`);
-          } else {
-            console.log(`[guardian] Session '${sessionId}' created in MongoDB`);
-          }
-        }
-      } else {
-        // MCP unreachable — attempt to create session
-        console.warn(`[guardian] MCP check failed for session '${sessionId}', attempting creation...`);
-        const createRes = await fetch(`${MCP_BASE}/tools/create_session`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            candidateId: primaryEvent.candidateId ?? "unknown",
-            assessmentId: primaryEvent.assessmentId ?? "unknown",
-          }),
-        });
-        if (!createRes.ok) {
-          console.warn(`[guardian] Failed to create session in MongoDB: ${await createRes.text()}`);
-        }
-      }
-    } catch (err) {
-      console.warn(`[guardian] Error ensuring MongoDB session exists:`, err);
-      // Non-fatal — continue with in-memory processing
-    }
+    // ── Step 2: Persist micro-events to MongoDB (timeout-isolated) ──
+    console.log(`[Guardian Route] [${requestId}] Persisting ${processedCount} events to MongoDB...`);
+    await persistMicroEvents(body.events, requestId);
 
-    // ── Persist micro-events to MongoDB via MCP ──
-    try {
-      const eventsRes = await fetch(`${MCP_BASE}/tools/ingest_micro_events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ events: body.events }),
-      });
-      if (!eventsRes.ok) {
-        console.warn(`[guardian] Failed to persist events to MongoDB: ${await eventsRes.text()}`);
-      }
-    } catch (err) {
-      console.warn(`[guardian] Error persisting events to MongoDB:`, err);
-      // Non-fatal — continue with in-memory processing
-    }
-
-    // ── In-memory processing (for real-time guardian analysis) ──
-
-    // Aggregate events into session
+    // ── Step 3: In-memory processing (real-time guardian analysis) ──
+    console.log(`[Guardian Route] [${requestId}] Processing ${processedCount} events in-memory...`);
     for (const event of body.events) {
       processEvent(event);
     }
 
     const session = sessionStore.get(sessionId);
     if (!session) {
+      console.error(`[Guardian Route] [${requestId}] Session ${sessionId} not found after processing`);
       return c.json({ success: false, error: `Session ${sessionId} not found after processing` }, 404);
     }
 
-    // Check if suspicion analysis should be triggered
+    // ── Step 4: Suspicion analysis threshold check ──
     const shouldAnalyze =
       session.pasteCount > config.security.maxPasteEventsPerSession ||
       session.tabSwitchCount > 3 ||
       session.fullscreenExitCount > 0 ||
       session.copyAttemptCount > 2 ||
       hasAnomalousKeystrokes(session.keystrokeDeltas);
+
+    console.log(
+      `[Guardian Route] [${requestId}] Suspicion check — ` +
+        `pastes=${session.pasteCount}/${config.security.maxPasteEventsPerSession} ` +
+        `tabs=${session.tabSwitchCount} fullscreen=${session.fullscreenExitCount} ` +
+        `copies=${session.copyAttemptCount} codeLen=${session.currentCode.length} ` +
+        `shouldAnalyze=${shouldAnalyze}`
+    );
 
     if (shouldAnalyze && session.currentCode.length > 50) {
       const keystrokeMetrics = computeKeystrokeMetrics(session.keystrokeDeltas);
@@ -160,11 +143,22 @@ guardianRouter.post("/ingest", async (c) => {
         primaryEvent?.problemId ?? ""
       );
 
+      console.log(
+        `[Guardian Route] [${requestId}] Invoking GeminiClient.analyzeSuspicion ` +
+          `— codeLen=${session.currentCode.length} pastes=${pasteContents.length} ` +
+          `refCompletions=${referenceCompletions.length} keystrokeAvg=${keystrokeMetrics.avgDeltaMs.toFixed(1)}ms`
+      );
+
+      const analysisStartMs = Date.now();
       suspicionPayload = await gemini.analyzeSuspicion(
         session.currentCode,
         pasteContents,
         keystrokeMetrics,
         referenceCompletions
+      );
+      console.log(
+        `[Guardian Route] [${requestId}] Gemini suspicion analysis complete in ${Date.now() - analysisStartMs}ms ` +
+          `— score=${suspicionPayload.overallScore} flags=${suspicionPayload.flags.length}`
       );
 
       // Enrich with session context
@@ -178,16 +172,8 @@ guardianRouter.post("/ingest", async (c) => {
 
       alertTriggered = suspicionPayload.overallScore > 50;
 
-      // ── Persist suspicion report to MongoDB ──
-      try {
-        await fetch(`${MCP_BASE}/tools/store_suspicion_report`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ report: suspicionPayload }),
-        });
-      } catch (err) {
-        console.warn(`[guardian] Error persisting suspicion report:`, err);
-      }
+      // ── Persist suspicion report to MongoDB (timeout-isolated) ──
+      await persistSuspicionReport(suspicionPayload, requestId);
     }
 
     const response: IngestMicroEventResponse = {
@@ -197,12 +183,19 @@ guardianRouter.post("/ingest", async (c) => {
       alertTriggered,
     };
 
+    console.log(
+      `[Guardian Route] [${requestId}] COMPLETE — processedCount=${processedCount} ` +
+        `alertTriggered=${alertTriggered} score=${suspicionPayload?.overallScore ?? "N/A"}`
+    );
     return c.json(response, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown guardian error";
-    console.error("[IntentGuardian]", message);
+    console.error(
+      `[Guardian Route] [${requestId}] FAILURE — ${message}`,
+      error instanceof Error ? error.stack : ""
+    );
     return c.json(
-      { success: false, error: `Guardian analysis failed: ${message}` },
+      { success: false, error: `Guardian analysis failed: ${message}`, correlationId: requestId },
       500
     );
   }
@@ -235,7 +228,116 @@ guardianRouter.get("/sessions/:sessionId", async (c) => {
   });
 });
 
-// ─── Internal Helpers ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// MCP Timeout-Isolated Helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Executes an MCP HTTP fetch with a hard timeout. Returns the Response
+ * on success, or null if the call timed out / errored.
+ */
+async function mcpFetch(
+  tool: string,
+  body: unknown,
+  requestId: string
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.warn(
+      `[Guardian MCP] [${requestId}] ABORTING ${tool} after ${MCP_TIMEOUT_MS}ms`
+    );
+    controller.abort();
+  }, MCP_TIMEOUT_MS);
+
+  try {
+    const startMs = Date.now();
+    const res = await fetch(`${MCP_BASE}/tools/${tool}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    console.log(
+      `[Guardian MCP] [${requestId}] ${tool} completed — HTTP ${res.status} in ${Date.now() - startMs}ms`
+    );
+    return res;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      console.error(
+        `[Guardian MCP] [${requestId}] ${tool} TIMED OUT after ${MCP_TIMEOUT_MS}ms`
+      );
+    } else {
+      console.error(
+        `[Guardian MCP] [${requestId}] ${tool} error:`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function ensureMongoSession(
+  sessionId: string,
+  primaryEvent: MicroEvent,
+  requestId: string
+): Promise<void> {
+  // Check if session exists
+  const checkRes = await mcpFetch("get_session_review", { sessionId }, requestId);
+
+  let exists = false;
+  if (checkRes?.ok) {
+    try {
+      const checkData = (await checkRes.json()) as { success: boolean; session?: unknown };
+      exists = checkData.success && !!checkData.session;
+    } catch {
+      exists = false;
+    }
+  }
+
+  if (!exists) {
+    console.log(`[Guardian MCP] [${requestId}] Session '${sessionId}' not found, creating...`);
+    const createRes = await mcpFetch(
+      "create_session",
+      {
+        sessionId,
+        candidateId: primaryEvent.candidateId ?? "unknown",
+        assessmentId: primaryEvent.assessmentId ?? "unknown",
+      },
+      requestId
+    );
+    if (createRes?.ok) {
+      console.log(`[Guardian MCP] [${requestId}] Session '${sessionId}' created`);
+    } else {
+      console.warn(`[Guardian MCP] [${requestId}] Failed to create session (non-fatal)`);
+    }
+  }
+}
+
+async function persistMicroEvents(
+  events: MicroEvent[],
+  requestId: string
+): Promise<void> {
+  const res = await mcpFetch("ingest_micro_events", { events }, requestId);
+  if (!res?.ok) {
+    console.warn(`[Guardian MCP] [${requestId}] Failed to persist events (non-fatal)`);
+  }
+}
+
+async function persistSuspicionReport(
+  report: SuspicionPayload,
+  requestId: string
+): Promise<void> {
+  const res = await mcpFetch("store_suspicion_report", { report }, requestId);
+  if (!res?.ok) {
+    console.warn(`[Guardian MCP] [${requestId}] Failed to persist suspicion report (non-fatal)`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Internal Helpers
+// ═══════════════════════════════════════════════════════════════════
 
 function processEvent(event: MicroEvent): void {
   let session = sessionStore.get(event.sessionId);
@@ -318,10 +420,7 @@ function computeKeystrokeMetrics(deltas: number[]): {
 function applyDiffPatch(current: string, _diffPatch: string): string {
   // Simplified: append the diff as a code block update.
   // In production, this applies a proper unified diff algorithm.
-  // For hackathon purposes, we treat the diff as the new code state
-  // when it represents a full replacement.
   if (_diffPatch.startsWith("@@") || _diffPatch.startsWith("---")) {
-    // Extract the new code portion from the unified diff
     const lines = _diffPatch.split("\n");
     const newLines = lines
       .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
@@ -336,8 +435,6 @@ async function getReferenceCompletions(
   _problemId: string
 ): Promise<string[]> {
   // In production, queries the MCP MongoDB store for cached Gemini completions
-  // that were pre-generated for the same problem as part of the test suite.
-  // For hackathon, returns the expected answer from the generated suite (if cached).
   return [];
 }
 

@@ -18,6 +18,8 @@ export interface GeminiConfig {
   region: string;
   maxOutputTokens: number;
   temperature: number;
+  /** Per-attempt timeout in ms for a single Gemini API call (default 90_000 = 90s). */
+  requestTimeoutMs: number;
 }
 
 export interface MCPConfig {
@@ -44,8 +46,12 @@ export function loadConfig(): AppConfig {
     apiKey: process.env["GEMINI_API_KEY"] ?? "",
     model: process.env["GEMINI_MODEL"] ?? "gemini-3-flash-preview",
     region: process.env["GEMINI_REGION"] ?? "us-central1",
-    maxOutputTokens: parseInt(process.env["GEMINI_MAX_OUTPUT_TOKENS"] ?? "8192", 10),
+    maxOutputTokens: parseInt(process.env["GEMINI_MAX_OUTPUT_TOKENS"] ?? "16384", 10),
     temperature: parseFloat(process.env["GEMINI_TEMPERATURE"] ?? "0.2"),
+    requestTimeoutMs: parseInt(
+      process.env["GEMINI_REQUEST_TIMEOUT_MS"] ?? "90000",
+      10
+    ),
   };
 
   const mcp: MCPConfig = {

@@ -5,6 +5,14 @@
  * Serves the complete session review payload consumed by the Flutter
  * split-panel analytical review UI. Returns submitted code, timestamped
  * security metrics, suspicion scores, and behavioral flags.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * ENTERPRISE HARDENING (2026-05-28):
+ *   - Every MCP HTTP call is wrapped in an isolated AbortController
+ *     timeout (MCP_TIMEOUT_MS) so that a slow MongoDB Atlas connection
+ *     never starves the review endpoint.
+ *   - Deep observability telemetry logs at every pipeline milestone.
+ * ═══════════════════════════════════════════════════════════════════
  */
 
 import { Hono } from "hono";
@@ -15,22 +23,84 @@ const reviewRouter = new Hono();
 // MCP HTTP Adapter base URL (sidecar on port 3001)
 const MCP_BASE = process.env["MCP_URL"] ?? "http://localhost:3001";
 
+/**
+ * Maximum time (ms) any single MCP fetch call is allowed to take.
+ * Exceeding this threshold aborts the request and returns a degraded
+ * (but valid) response instead of timing out the client.
+ */
+const MCP_TIMEOUT_MS = 5_000;
+
+// ═══════════════════════════════════════════════════════════════════
+// MCP Timeout-Isolated Fetch Helper
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Executes an MCP HTTP fetch with a hard timeout. Returns the Response
+ * on success, or null if the call timed out / errored.
+ */
+async function mcpFetch(
+  tool: string,
+  body: unknown,
+  requestId: string
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.warn(
+      `[Review MCP] [${requestId}] ABORTING ${tool} after ${MCP_TIMEOUT_MS}ms`
+    );
+    controller.abort();
+  }, MCP_TIMEOUT_MS);
+
+  try {
+    const startMs = Date.now();
+    const res = await fetch(`${MCP_BASE}/tools/${tool}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    console.log(
+      `[Review MCP] [${requestId}] ${tool} completed — HTTP ${res.status} in ${Date.now() - startMs}ms`
+    );
+    return res;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      console.error(
+        `[Review MCP] [${requestId}] ${tool} TIMED OUT after ${MCP_TIMEOUT_MS}ms`
+      );
+    } else {
+      console.error(
+        `[Review MCP] [${requestId}] ${tool} error:`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── GET /api/v1/sessions ───────────────────────────────────────
 // Lists all sessions from MongoDB via the MCP HTTP adapter.
 
 reviewRouter.get("/", async (c) => {
-  try {
-    const res = await fetch(`${MCP_BASE}/tools/list_sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+  const requestId = crypto.randomUUID();
+  console.log(`[Review Route] [${requestId}] Incoming GET /api/v1/sessions`);
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.error(
-        `[review] list_sessions failed: ${res.status} ${errBody}`
-      );
+  try {
+    const res = await mcpFetch("list_sessions", {}, requestId);
+
+    if (!res || !res.ok) {
+      if (res) {
+        const errBody = await res.text().catch(() => "<unreadable>");
+        console.error(
+          `[Review Route] [${requestId}] list_sessions failed: HTTP ${res.status} ${errBody.substring(0, 300)}`
+        );
+      } else {
+        console.warn(
+          `[Review Route] [${requestId}] list_sessions timed out / unreachable — returning empty list`
+        );
+      }
       return c.json({ success: true, data: [] });
     }
 
@@ -47,8 +117,13 @@ reviewRouter.get("/", async (c) => {
     };
 
     if (!mcpResult.success || !mcpResult.data) {
+      console.log(`[Review Route] [${requestId}] list_sessions returned empty data`);
       return c.json({ success: true, data: [] });
     }
+
+    console.log(
+      `[Review Route] [${requestId}] list_sessions returned ${mcpResult.data.length} sessions — enriching...`
+    );
 
     // Enrich each session with counts from micro_events and suspicion_reports
     const enrichedSessions = await Promise.all(
@@ -59,16 +134,14 @@ reviewRouter.get("/", async (c) => {
         let suspicionScore = 0;
         let lastEventTimestamp: string | null = s.updatedAt ?? null;
 
-        try {
-          const reviewRes = await fetch(
-            `${MCP_BASE}/tools/get_session_review`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sessionId: s.sessionId }),
-            }
-          );
-          if (reviewRes.ok) {
+        const reviewRes = await mcpFetch(
+          "get_session_review",
+          { sessionId: s.sessionId },
+          requestId
+        );
+
+        if (reviewRes?.ok) {
+          try {
             const reviewData = (await reviewRes.json()) as {
               success: boolean;
               events?: Array<{
@@ -108,9 +181,9 @@ reviewRouter.get("/", async (c) => {
                   reviewData.suspicionReports.length - 1
                 ].overallScore;
             }
+          } catch {
+            // Silently fall back — counts will be zero
           }
-        } catch {
-          // Silently fall back — counts will be zero
         }
 
         return {
@@ -127,9 +200,13 @@ reviewRouter.get("/", async (c) => {
       })
     );
 
+    console.log(`[Review Route] [${requestId}] COMPLETE — ${enrichedSessions.length} enriched sessions`);
     return c.json({ success: true, data: enrichedSessions });
   } catch (error) {
-    console.error("[review] list_sessions error:", error);
+    console.error(
+      `[Review Route] [${requestId}] FAILURE:`,
+      error instanceof Error ? error.message : String(error)
+    );
     return c.json({ success: true, data: [] });
   }
 });
@@ -139,19 +216,23 @@ reviewRouter.get("/", async (c) => {
 
 reviewRouter.get("/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
+  const requestId = crypto.randomUUID();
+  console.log(`[Review Route] [${requestId}] Incoming GET /api/v1/sessions/${sessionId}`);
 
   try {
-    const mcpRes = await fetch(`${MCP_BASE}/tools/get_session_review`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
+    const mcpRes = await mcpFetch(
+      "get_session_review",
+      { sessionId },
+      requestId
+    );
 
-    if (!mcpRes.ok) {
-      const errBody = await mcpRes.text();
-      console.error(
-        `[review] get_session_review failed: ${mcpRes.status} ${errBody}`
-      );
+    if (!mcpRes || !mcpRes.ok) {
+      if (mcpRes) {
+        const errBody = await mcpRes.text().catch(() => "<unreadable>");
+        console.error(
+          `[Review Route] [${requestId}] get_session_review failed: HTTP ${mcpRes.status} ${errBody.substring(0, 300)}`
+        );
+      }
       return c.json(
         { success: false, error: `Session '${sessionId}' not found` },
         404
@@ -177,6 +258,7 @@ reviewRouter.get("/:sessionId", async (c) => {
     };
 
     if (!mcpData.success || !mcpData.session) {
+      console.warn(`[Review Route] [${requestId}] Session '${sessionId}' not found in MongoDB`);
       return c.json(
         { success: false, error: `Session '${sessionId}' not found` },
         404
@@ -186,6 +268,11 @@ reviewRouter.get("/:sessionId", async (c) => {
     const session = mcpData.session;
     const events = mcpData.events ?? [];
     const reports = mcpData.suspicionReports ?? [];
+
+    console.log(
+      `[Review Route] [${requestId}] Session '${sessionId}' loaded — ` +
+        `${events.length} events, ${reports.length} reports`
+    );
 
     // Build timeline from micro-events
     const timeline = events.map((event) => {
@@ -318,9 +405,16 @@ reviewRouter.get("/:sessionId", async (c) => {
         : null,
     };
 
+    console.log(
+      `[Review Route] [${requestId}] COMPLETE — status=${status} ` +
+        `events=${timeline.length} suspicions=${suspicionSummary.length} finalScore=${response.finalScore}`
+    );
     return c.json({ success: true, data: response });
   } catch (error) {
-    console.error("[review] get_session error:", error);
+    console.error(
+      `[Review Route] [${requestId}] FAILURE:`,
+      error instanceof Error ? error.message : String(error)
+    );
     return c.json(
       { success: false, error: "Failed to fetch session" },
       500
