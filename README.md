@@ -47,7 +47,9 @@ enforcement layer**:
    context.
 4. **Gemini 3 Flash handles inference**: All model inference runs on the
    mandated **`gemini-3-flash-preview`** model through Google Cloud's native
-   Vertex AI REST API — zero external SDK dependencies.
+   Vertex AI REST API — zero external SDK dependencies. Configurable timeout
+   (default 90s via `GEMINI_REQUEST_TIMEOUT_MS`) with exponential backoff retry
+   ensures reliable large-suite generation.
 
 This architecture satisfies the hackathon's three core platform requirements
 simultaneously: Google Cloud Agent Builder (orchestration), Gemini 3 (model),
@@ -60,8 +62,8 @@ and MCP with MongoDB (grounding).
 | # | Agent | Capability | Technology |
 |---|-------|-----------|------------|
 | 1 | **Autonomous Test Suite Generator** | Converts a single text prompt into a structured JSON assessment with metadata, competency matrices, coding problems, and hidden anti-cheat test cases | Hono + Gemini 3 Flash Orchestrator |
-| 2 | **Real-Time Intent & Plagiarism Guardian** | Processes micro-events (paste triggers, code shifts, token injections) in streaming fashion, assigns live suspicion payloads | Gemini Reasoning + MCP MongoDB streaming |
-| 3 | **Interactive Analytical Review Log** | Split-panel Flutter UI — left: candidate code workspace, right: scrollable security timeline with suspicion scores and behavioral flags | Flutter Material 3 + Provider + SSE |
+| 2 | **Real-Time Intent & Plagiarism Guardian** | Processes micro-events (paste triggers, code shifts, token injections) in streaming fashion, assigns live suspicion payloads; auto-creates sessions if missing | Gemini Reasoning + MCP MongoDB streaming |
+| 3 | **Interactive Analytical Review Log** | Split-panel Flutter UI — left: candidate code workspace, right: scrollable security timeline with suspicion scores and behavioral flags; session drawer populated via `GET /api/v1/sessions` | Flutter Material 3 + Provider + SSE |
 
 ---
 
@@ -96,6 +98,7 @@ and MCP with MongoDB (grounding).
 │  │            GEMINI 3 FLASH — SECURITY & VALIDATION LAYER        │  │
 │  │  • Orchestrator Agent — JSON contract validation + transforms │  │
 │  │  • Intent Guardian Agent — semantic similarity + paste detect │  │
+│  │  • 90s timeout + exponential backoff for reliable generation  │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    │ MCP (Model Context Protocol)
@@ -103,7 +106,7 @@ and MCP with MongoDB (grounding).
 ┌──────────────────────────────────────────────────────────────────────┐
 │                  MCP SERVER — MONGODB ATLAS TRACK                     │
 │  • Sessions Collection    • Micro-Events Collection                  │
-│  • Suspicion Reports      • 10 registered MCP tools                  │
+│  • Suspicion Reports      • 11 registered MCP tools                  │
 │  • HTTP adapter for Cloud Run sidecar deployment                     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -125,7 +128,8 @@ Google-Cloud-Hackathon/
     ├── package.json                   # Sandbox-local npm config
     ├── Dockerfile                     # Multi-stage Cloud Run container
     ├── entrypoint.sh                  # Concurrent Hono + MCP launcher
-    ├── start-services.js              # Node.js dev process manager
+    ├── start-services.js              # Node.js dev process manager (production build)
+    ├── dev-services.js                # Auto-reload dev mode (tsx watch)
     ├── hono-api/                      # Hono TypeScript API (Cloud Run)
     │   ├── package.json
     │   ├── tsconfig.json
@@ -189,6 +193,9 @@ cp mcp-server/.env.example mcp-server/.env
 # Edit both .env files with your GEMINI_API_KEY and MONGODB_URI
 ```
 
+See `.env.example` for all available options including `GEMINI_REQUEST_TIMEOUT_MS`
+(default 90s) and anti-cheat thresholds.
+
 ### 3. Set Up MongoDB Indexes (Required for Performance)
 
 **⚠️ Without these indexes, aggregation queries against large session datasets
@@ -236,6 +243,9 @@ db.micro_events.getIndexes();
 db.suspicion_reports.getIndexes();
 ```
 
+> **Note**: The MCP server also runs `ensureIndexes()` automatically on startup
+> to create the core indexes if they don't exist.
+
 ### 4. Build & Run Locally
 
 ```bash
@@ -243,11 +253,14 @@ db.suspicion_reports.getIndexes();
 npm run build -w sandbox/hono-api
 npm run build -w sandbox/mcp-server
 
-# Start both services concurrently
+# Option A: Production mode (compiled JS)
 node start-services.js
+
+# Option B: Auto-reload dev mode (tsx watch — no build needed)
+node dev-services.js
 ```
 
-- Hono API → `http://localhost:3000`
+- Hono API → `http://localhost:8080`
 - MCP Server HTTP Adapter → `http://localhost:3001`
 
 ### 5. Run Flutter Review Panel
@@ -255,7 +268,7 @@ node start-services.js
 ```bash
 cd frontend
 flutter pub get
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
 ### 6. Deploy to Cloud Run
@@ -279,7 +292,8 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 ### `POST /api/v1/generate` — Test Suite Generator (Agent Builder Webhook)
 
 Accepts a single text prompt and returns a structured JSON test suite via the
-Orchestrator Agent running on Gemini 3 Flash.
+Orchestrator Agent running on Gemini 3 Flash. Configured with 90s timeout and
+exponential backoff for reliable large-suite generation.
 
 ```json
 // Request
@@ -293,6 +307,7 @@ Orchestrator Agent running on Gemini 3 Flash.
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
 Streams micro-events to Gemini 3 Flash for real-time integrity analysis.
+Auto-creates a session if the referenced `sessionId` does not exist.
 
 ```json
 // Request
@@ -341,11 +356,12 @@ and suspicion reports for the review panel.
 
 ## 🗄️ MongoDB MCP Tools (MongoDB Partner Track)
 
-The MCP HTTP adapter exposes **10 tools** via `POST /tools/:toolName`. Core data operations:
+The MCP HTTP adapter exposes **11 tools** via `POST /tools/:toolName`. Core data operations:
 
 | Tool | Operation | Purpose |
 |------|-----------|---------|
 | `store_test_suite` | INSERT | Persist generated assessment suite |
+| `get_test_suite` | FIND | Retrieve a test suite by suiteId |
 | `create_session` | INSERT | Initialize candidate assessment session |
 | `update_session_code` | UPDATE | Update submitted code workspace |
 | `append_micro_event` | INSERT | Stream single micro-event to timeline |
@@ -353,7 +369,7 @@ The MCP HTTP adapter exposes **10 tools** via `POST /tools/:toolName`. Core data
 | `store_suspicion_report` | INSERT | Store Gemini suspicion analysis |
 | `get_session_review` | AGGREGATE | Full review log (session + events + reports) |
 | `get_candidate_report` | AGGREGATE | Full candidate evaluation data |
-| `query_sessions` | FIND | Filter sessions by candidate/test |
+| `list_sessions` | FIND | List all sessions (supports drawer population) |
 | `health_check` | PING | MongoDB connectivity test |
 
 All operations use the MongoDB Node.js native driver with Atlas connection pooling.
@@ -412,12 +428,12 @@ Streaming micro-event processor:
 | **Repository Isolation Rule** | ✅ PASS | Fresh Git history — all original work within hackathon window (May 5 – June 11, 2026) |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder for orchestration; Hono API as security/validation webhook runtime |
 | **Gemini Model** | ✅ PASS | Exclusive use of `gemini-3-flash-preview` via Google Cloud Vertex AI native fetch |
-| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 10 registered tools |
+| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 11 registered tools |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, AWS Bedrock, or external AI dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use native `fetch()` to Vertex AI Gemini API (no third-party SDKs) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repository root |
 | **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
-| **MongoDB Indexes** | ✅ PASS | Documented `createIndex()` commands for all session/event/report collections |
+| **MongoDB Indexes** | ✅ PASS | Documented `createIndex()` commands + automatic `ensureIndexes()` on MCP startup |
 
 ---
 

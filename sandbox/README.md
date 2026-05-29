@@ -22,7 +22,8 @@ acts as an Agent Builder tool target. The flow works as follows:
 2. **Hono acts as the tool-execution runtime**: When Agent Builder invokes a
    tool (e.g., `generate_test_suite`), the webhook hits the corresponding
    Hono endpoint, which calls Gemini 3 Flash via native Vertex AI fetch and
-   returns structured JSON output.
+   returns structured JSON output. Configurable 90s timeout with exponential
+   backoff ensures reliable large-suite generation.
 3. **MCP Server provides the grounding layer**: All session data, micro-events,
    and suspicion reports are persisted to MongoDB Atlas through the Model
    Context Protocol server, which Agent Builder can query for conversational
@@ -71,6 +72,7 @@ and MCP with MongoDB (grounding).
 │  │  │ • JSON contract    │  │ • Code-shift analysis            │    │  │
 │  │  │ • Competency matrix│  │ • Token injection patterns       │    │  │
 │  │  │ • Hidden test cases│  │ • Semantic similarity scoring    │    │  │
+│  │  │ • 90s timeout      │  │ • Auto-creates sessions          │    │  │
 │  │  └────────────────────┘  └──────────────────────────────────┘    │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬────────────────────────────────────────┘
@@ -83,10 +85,13 @@ and MCP with MongoDB (grounding).
 │  │ Collection   │  │ Collection   │  │ Reports      │                  │
 │  └──────────────┘  └──────────────┘  └──────────────┘                  │
 │                                                                         │
-│  Exposes:                                                               │
-│  • mcp__sessions__insert / find / update                                │
-│  • mcp__micro_events__append / query                                    │
-│  • mcp__suspicion_reports__insert / findBySession                       │
+│  Exposes 11 MCP tools via HTTP adapter:                                 │
+│  • store_test_suite / get_test_suite                                   │
+│  • create_session / update_session_code                                │
+│  • append_micro_event / ingest_micro_events                            │
+│  • store_suspicion_report                                              │
+│  • get_session_review / get_candidate_report / list_sessions            │
+│  • health_check                                                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -105,11 +110,12 @@ Google-Cloud-Hackathon/
     ├── package.json                 # npm workspace: hono-api + mcp-server
     ├── Dockerfile                   # Multi-stage Cloud Run container
     ├── entrypoint.sh                # Concurrent Hono + MCP launcher
-    ├── start-services.js            # Node.js dev process manager
+    ├── start-services.js            # Node.js dev process manager (production builds)
+    ├── dev-services.js              # Auto-reload dev mode (tsx watch)
     ├── hono-api/                    # Hono TypeScript API (Cloud Run)
     │   ├── package.json
     │   ├── tsconfig.json
-    │   ├── .env.template            # Merge with .env before running
+    │   ├── .env.example             # Copy to .env and configure
     │   └── src/
     │       ├── index.ts             # Entry point, Hono app bootstrap
     │       ├── config.ts            # Environment config loader
@@ -124,7 +130,7 @@ Google-Cloud-Hackathon/
     ├── mcp-server/                  # MCP Server (MongoDB Partner Track)
     │   ├── package.json
     │   ├── tsconfig.json
-    │   ├── .env.template            # Merge with .env before running
+    │   ├── .env.example             # Copy to .env and configure
     │   └── src/
     │       ├── server.ts            # StdioServerTransport MCP server
     │       ├── mongo-client.ts      # MongoDB native driver + MongoStore
@@ -178,8 +184,22 @@ npm install
 
 ```bash
 cp sandbox/hono-api/.env.example sandbox/hono-api/.env
-# Edit .env with your GEMINI_API_KEY and MONGODB_URI
+cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
+# Edit both .env files with your GEMINI_API_KEY and MONGODB_URI
 ```
+
+Key configuration options in `.env.example`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_REQUEST_TIMEOUT_MS` | `90000` | Per-attempt Gemini API call timeout (90s) |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Model to use for all inference |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `16384` | Max tokens for Gemini responses |
+| `GEMINI_TEMPERATURE` | `0.2` | Determinism control (lower = more deterministic) |
+| `MCP_SERVER_ENDPOINT` | `http://localhost:3001` | MCP server URL |
+| `SESSION_TTL_SECONDS` | `7200` | Session expiry (2 hours) |
+| `MAX_PASTE_EVENTS` | `5` | Max paste events before auto-flagging |
+| `PLAGIARISM_THRESHOLD` | `0.75` | Semantic similarity threshold |
 
 ### 3. Build & Run Locally
 
@@ -188,12 +208,15 @@ cp sandbox/hono-api/.env.example sandbox/hono-api/.env
 npm run build -w sandbox/hono-api
 npm run build -w sandbox/mcp-server
 
-# Start Hono API (port 3000)
-node sandbox/hono-api/dist/index.js
+# Option A: Production mode (compiled JS)
+node sandbox/start-services.js
 
-# Start MCP Server (port 3001, separate terminal)
-node sandbox/mcp-server/dist/server.js
+# Option B: Auto-reload dev mode (tsx watch — no build needed)
+node sandbox/dev-services.js
 ```
+
+- Hono API → `http://localhost:8080`
+- MCP Server HTTP Adapter → `http://localhost:3001`
 
 ### 4. Deploy to Cloud Run
 
@@ -210,6 +233,8 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 ### `POST /api/v1/generate` — Test Suite Generator
 
 Accepts a single text prompt and returns a structured JSON test suite.
+Configured with 90s timeout and exponential backoff (2 retries) for reliable
+large-suite generation.
 
 **Request:**
 ```json
@@ -225,6 +250,7 @@ competencies, problems, and hidden testing matrices. See `types.ts` for full sch
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
 Streams micro-events to Gemini for real-time integrity analysis.
+Auto-creates a session if the referenced `sessionId` does not exist.
 
 **Request:**
 ```json
@@ -274,15 +300,17 @@ Returns `{ "status": "ok", "timestamp": "..." }`
 
 ---
 
-## 🗄️ MongoDB MCP Tools — 5 Core Data Operations
+## 🗄️ MongoDB MCP Tools — 11 Tools via HTTP Adapter
 
-The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes 10 tools
-via `POST /tools/:toolName`. The five primary data tools are:
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **11 tools**
+via `POST /tools/:toolName`. All database operations route through the
+`MongoStore` class (`mongo-client.ts`) using the MongoDB Node.js native driver
+with Atlas connection pooling.
 
-### Tool 1: `store_test_suite`
-**Purpose:** Persist a generated assessment suite document.
-**Parameters:** `{ suite: GeneratedTestSuite }`
-**Returns:** `{ success: true, mongoDocumentId: string }`
+### Tool 1: `store_test_suite` / `get_test_suite`
+**Purpose:** Persist and retrieve generated assessment suite documents.
+**Store parameters:** `{ suite: GeneratedTestSuite }`
+**Get parameters:** `{ suiteId: string }`
 
 ### Tool 2: `create_session` / `update_session_code`
 **Purpose:** Initialize a candidate assessment session and update submitted code.
@@ -306,8 +334,20 @@ micro-event timeline, and suspicion reports — for the Flutter review panel.
 **Parameters:** `{ sessionId }` or `{ candidateId }`
 **Returns:** `{ session, events[], suspicionReports[] }`
 
-All tools route through the `MongoStore` class (`mongo-client.ts`) using the
-MongoDB Node.js native driver with Atlas connection pooling.
+### Tool 6: `list_sessions`
+**Purpose:** List all sessions with summary fields. Used by the Flutter drawer.
+**Parameters:** none
+**Returns:** `{ success: true, data: SessionSummary[] }`
+
+### Tool 7: `health_check`
+**Purpose:** MongoDB connectivity health check with Atlas ping.
+**Returns:** `{ connected: boolean, healthy: boolean, timestamp: string }`
+
+### Auto-Indexing
+
+The `MongoStore` class runs `ensureIndexes()` automatically on startup,
+creating core indexes for `sessions`, `micro_events`, `suspicion_reports`,
+and `test_suites` collections if they don't already exist.
 
 ---
 
@@ -347,11 +387,12 @@ The Guardian operates as a streaming micro-event processor:
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
-| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with full tool registration |
+| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 11 registered tools |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use native `fetch()` to Vertex AI Gemini API |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |
 | **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
+| **MongoDB Indexes** | ✅ PASS | Automatic `ensureIndexes()` on MCP startup + documented manual indexes |
 
 ---
 
