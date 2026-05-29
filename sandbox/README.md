@@ -194,7 +194,7 @@ Key configuration options in `.env.example`:
 |----------|---------|-------------|
 | `GEMINI_REQUEST_TIMEOUT_MS` | `90000` | Per-attempt Gemini API call timeout (90s) |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Model to use for all inference |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `16384` | Max tokens for Gemini responses |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (bumped from 16384 to prevent truncation on large test suites) |
 | `GEMINI_TEMPERATURE` | `0.2` | Determinism control (lower = more deterministic) |
 | `MCP_SERVER_ENDPOINT` | `http://localhost:3001` | MCP server URL |
 | `SESSION_TTL_SECONDS` | `7200` | Session expiry (2 hours) |
@@ -232,17 +232,26 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 
 ### `POST /api/v1/generate` — Test Suite Generator
 
-Accepts a single text prompt and returns a structured JSON test suite.
+Accepts a text prompt and returns a structured JSON test suite via the
+Orchestrator Agent running on Gemini 3 Flash (`gemini-3-flash-preview`).
 Configured with 90s timeout and exponential backoff (2 retries) for reliable
-large-suite generation.
+large-suite generation. Supports explicit role targeting and problem count
+tuning.
 
 **Request:**
 ```json
 {
-  "prompt": "Generate a senior React developer assessment covering state
-management, hooks, and performance optimization for 45 minutes."
+  "prompt": "Generate a senior React developer assessment covering state management...",
+  "roleContext": "senior engineer",
+  "problemCount": 5
 }
 ```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | `string` | ✅ Yes | — | Natural-language description of the assessment domain |
+| `roleContext` | `string` | No | `"mid-level developer"` | Target seniority level for competency calibration |
+| `problemCount` | `number` | No | `5` | Number of coding problems to generate (1–10) |
 
 **Response:** Complete `GeneratedTestSuite` object with metadata, roles,
 competencies, problems, and hidden testing matrices. See `types.ts` for full schema.

@@ -291,18 +291,27 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 
 ### `POST /api/v1/generate` — Test Suite Generator (Agent Builder Webhook)
 
-Accepts a single text prompt and returns a structured JSON test suite via the
-Orchestrator Agent running on Gemini 3 Flash. Configured with 90s timeout and
-exponential backoff for reliable large-suite generation.
+Accepts a text prompt and returns a structured JSON test suite via the
+Orchestrator Agent running on Gemini 3 Flash (`gemini-3-flash-preview`).
+Configured with 90s timeout and exponential backoff (2 retries) for reliable
+large-suite generation. Supports explicit role targeting and problem count tuning.
 
 ```json
 // Request
 {
-  "prompt": "Generate a senior React developer assessment covering state management, hooks, and performance optimization for 45 minutes."
+  "prompt": "Generate a senior React developer assessment covering state management...",
+  "roleContext": "senior engineer",
+  "problemCount": 5
 }
 
 // Response: GeneratedTestSuite { metadata, roles, competencies, problems[], hiddenTestMatrices }
 ```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | `string` | ✅ Yes | — | Natural-language description of the assessment domain |
+| `roleContext` | `string` | No | `"mid-level developer"` | Target seniority level for competency calibration |
+| `problemCount` | `number` | No | `5` | Number of coding problems to generate (1–10) |
 
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
