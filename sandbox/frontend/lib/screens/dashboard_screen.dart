@@ -103,12 +103,17 @@ class _DashboardScreenState extends State<DashboardScreen>
               ],
             ),
           ),
-        // Dark mode toggle
+        // Dark mode toggle — uses actual rendered brightness so the icon
+        // is correct even when themeMode is "system" and follows the OS.
         IconButton(
           icon: Icon(
-            themeProvider.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+            Theme.of(context).brightness == Brightness.dark
+                ? Icons.light_mode
+                : Icons.dark_mode,
           ),
-          tooltip: 'Toggle dark mode',
+          tooltip: Theme.of(context).brightness == Brightness.dark
+              ? 'Toggle light mode'
+              : 'Toggle dark mode',
           onPressed: () => themeProvider.toggleDarkMode(),
         ),
         const SizedBox(width: 4),
