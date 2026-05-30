@@ -1,10 +1,10 @@
-/// ─── Cerberus AI — Test Suite Generator Model ─────────────────────────────
-/// Models the structured JSON output contract from the Hono API Orchestrator
-/// backed by Gemini 3 Flash Preview.
-///
-/// Field names match the TypeScript types in sandbox/hono-api/src/types.ts
-/// exactly (camelCase). The API response envelope is:
-///   { success: bool, suite: GeneratedSuite, mcpCorrelationId: string }
+// ─── Cerberus AI — Test Suite Generator Model ─────────────────────────────
+// Models the structured JSON output contract from the Hono API Orchestrator
+// backed by Gemini 3 Flash Preview.
+//
+// Field names match the TypeScript types in sandbox/hono-api/src/types.ts
+// exactly (camelCase). The API response envelope is:
+//   { success: bool, suite: GeneratedSuite, mcpCorrelationId: string }
 
 class GeneratedSuite {
   final SuiteMetadata metadata;

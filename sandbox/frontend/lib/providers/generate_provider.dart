@@ -29,6 +29,8 @@ class GenerateProvider extends ChangeNotifier {
   bool _isLoading = false;
   int _attempt = 0; // 1-based, resets on success or explicit reset
   String _lastPrompt = '';
+  int _lastProblemCount = 5;
+  String _lastRoleContext = '';
 
   GenerateProvider(this._api);
 
@@ -45,7 +47,11 @@ class GenerateProvider extends ChangeNotifier {
 
   // ── Generate — entry point (auto-retry loop) ────────────────────────────
 
-  Future<void> generate(String prompt) async {
+  Future<void> generate(
+    String prompt, {
+    required int problemCount,
+    required String roleContext,
+  }) async {
     final trimmed = prompt.trim();
     if (trimmed.isEmpty) {
       _error = 'Prompt must not be empty';
@@ -54,13 +60,15 @@ class GenerateProvider extends ChangeNotifier {
     }
 
     _lastPrompt = trimmed;
+    _lastProblemCount = problemCount;
+    _lastRoleContext = roleContext;
     _attempt = 0;
     _suite = null;
     _error = null;
     _isLoading = true;
     notifyListeners();
 
-    await _generateWithAutoRetry(trimmed);
+    await _generateWithAutoRetry(trimmed, problemCount, roleContext);
   }
 
   // ── Manual retry (from UI button) ───────────────────────────────────────
@@ -73,7 +81,11 @@ class GenerateProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    await _generateWithAutoRetry(_lastPrompt);
+    await _generateWithAutoRetry(
+      _lastPrompt,
+      _lastProblemCount,
+      _lastRoleContext,
+    );
   }
 
   void reset() {
@@ -82,16 +94,25 @@ class GenerateProvider extends ChangeNotifier {
     _isLoading = false;
     _attempt = 0;
     _lastPrompt = '';
+    _lastRoleContext = '';
     notifyListeners();
   }
 
   // ── Internal: auto-retry loop ───────────────────────────────────────────
 
-  Future<void> _generateWithAutoRetry(String prompt) async {
+  Future<void> _generateWithAutoRetry(
+    String prompt,
+    int problemCount,
+    String roleContext,
+  ) async {
     while (_attempt <= _maxAutoRetries) {
       _attempt++;
       try {
-        _suite = await _api.generateSuite(prompt);
+        _suite = await _api.generateSuite(
+          prompt,
+          problemCount: problemCount,
+          roleContext: roleContext,
+        );
         // Success — clear error state
         _error = null;
         break;

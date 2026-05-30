@@ -31,7 +31,11 @@ class ApiService {
   }
 
   // ── Autonomous Test Suite Generator ────────────────────────────────────────
-  Future<GeneratedSuite> generateSuite(String prompt) async {
+  Future<GeneratedSuite> generateSuite(
+    String prompt, {
+    required int problemCount,
+    required String roleContext,
+  }) async {
     final uri = Uri.parse('$baseUrl/api/v1/generate');
     http.Response response;
     try {
@@ -41,7 +45,8 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
               'prompt': prompt,
-              'roleContext': 'fullstack-typescript',
+              'roleContext': roleContext,
+              'problemCount': problemCount,
             }),
           )
           .timeout(const Duration(seconds: 60));
