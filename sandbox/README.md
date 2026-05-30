@@ -21,20 +21,21 @@ acts as an Agent Builder tool target. The flow works as follows:
    multi-turn state management and context threading.
 2. **Hono acts as the tool-execution runtime**: When Agent Builder invokes a
    tool (e.g., `generate_test_suite`), the webhook hits the corresponding
-   Hono endpoint, which calls Gemini 3 Flash via native Vertex AI fetch and
-   returns structured JSON output. Configurable 90s timeout with exponential
-   backoff ensures reliable large-suite generation.
+   Hono endpoint, which calls Gemini 3 Flash via the `@google/genai` Vertex AI
+   SDK (authenticated with Application Default Credentials) and returns
+   structured JSON output. Exponential backoff with 3 retries ensures
+   reliable large-suite generation.
 3. **MCP Server provides the grounding layer**: All session data, micro-events,
    and suspicion reports are persisted to MongoDB Atlas through the Model
    Context Protocol server, which Agent Builder can query for conversational
    context.
 4. **Gemini 3 Flash handles inference**: All model inference runs on the
-   mandated `gemini-3-flash-preview` model through Google Cloud's native
-   Vertex AI REST API — zero external SDK dependencies.
+   mandated `gemini-3-flash-preview` model through Google Cloud's Vertex AI
+   SDK (`@google/genai` with `vertexai: true`) with ADC authentication.
 
 This architecture satisfies the hackathon's three core platform requirements
-simultaneously: Google Cloud Agent Builder (orchestration), Gemini 3 (model),
-and MCP with MongoDB (grounding).
+simultaneously: Google Cloud Agent Builder (orchestration), Gemini 3 (model
+via enterprise Vertex AI), and MCP with MongoDB (grounding).
 
 ---
 
@@ -121,7 +122,7 @@ Google-Cloud-Hackathon/
     │       ├── config.ts            # Environment config loader
     │       ├── types.ts             # Shared TypeScript contracts
     │       ├── agents/
-    │       │   └── gemini-client.ts # Native fetch Gemini 3 Flash client
+    │       │   └── gemini-client.ts # Vertex AI SDK Gemini 3 Flash client (ADC)
     │       └── routes/
     │           ├── health.ts        # GET /health
     │           ├── generate.ts      # POST /api/v1/generate
@@ -168,8 +169,8 @@ Google-Cloud-Hackathon/
 ### Prerequisites
 
 - **Node.js** ≥ 22
-- **Google Cloud Project** with Vertex AI API enabled
-- **Gemini API Key** (set as `GEMINI_API_KEY`)
+- **Google Cloud Project** with Vertex AI API enabled (project ID: `webscraping-464710`)
+- **Application Default Credentials** configured (`gcloud auth application-default login`)
 - **MongoDB Atlas** connection string (set as `MONGODB_URI`)
 - **Flutter SDK** ≥ 3.24 (for the review panel)
 
@@ -185,16 +186,17 @@ npm install
 ```bash
 cp sandbox/hono-api/.env.example sandbox/hono-api/.env
 cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
-# Edit both .env files with your GEMINI_API_KEY and MONGODB_URI
+# Edit both .env files with your GCP_PROJECT_ID, GCP_LOCATION, and MONGODB_URI
 ```
 
 Key configuration options in `.env.example`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GEMINI_REQUEST_TIMEOUT_MS` | `90000` | Per-attempt Gemini API call timeout (90s) |
+| `GCP_PROJECT_ID` | `webscraping-464710` | Google Cloud project ID for Vertex AI |
+| `GCP_LOCATION` | `global` | Vertex AI endpoint — use `global` for Gemini 3 Flash Preview |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Model to use for all inference |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (bumped from 16384 to prevent truncation on large test suites) |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (prevent truncation on large test suites) |
 | `GEMINI_TEMPERATURE` | `0.2` | Determinism control (lower = more deterministic) |
 | `MCP_SERVER_ENDPOINT` | `http://localhost:3001` | MCP server URL |
 | `SESSION_TTL_SECONDS` | `7200` | Session expiry (2 hours) |
@@ -234,9 +236,9 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 
 Accepts a text prompt and returns a structured JSON test suite via the
 Orchestrator Agent running on Gemini 3 Flash (`gemini-3-flash-preview`).
-Configured with 90s timeout and exponential backoff (2 retries) for reliable
-large-suite generation. Supports explicit role targeting and problem count
-tuning.
+Authenticated via Application Default Credentials with 3-retry exponential
+backoff for reliable large-suite generation. Supports explicit role targeting
+and problem count tuning.
 
 **Request:**
 ```json
@@ -398,7 +400,7 @@ The Guardian operates as a streaming micro-event processor:
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
 | **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 11 registered tools |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
-| **Google Native Routing** | ✅ PASS | All model calls use native `fetch()` to Vertex AI Gemini API |
+| **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |
 | **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
 | **MongoDB Indexes** | ✅ PASS | Automatic `ensureIndexes()` on MCP startup + documented manual indexes |

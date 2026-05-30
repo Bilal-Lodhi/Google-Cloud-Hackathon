@@ -6,6 +6,7 @@ import '../providers/health_provider.dart';
 import '../providers/guardian_provider.dart';
 import '../providers/review_provider.dart';
 import '../widgets/code_workspace_panel.dart';
+import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
 
 /// ─── Cerberus AI — Dashboard Screen (Split-View Analytical Review Log) ──────
@@ -27,7 +28,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initialLoad();
     });
@@ -320,6 +321,18 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: const SecurityMetricsPanel(),
           ),
         ),
+        // Third panel — Generate (only on very wide screens)
+        Expanded(
+          flex: 4,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(color: theme.dividerColor, width: 1),
+              ),
+            ),
+            child: const GeneratePanel(),
+          ),
+        ),
       ],
     );
   }
@@ -337,12 +350,17 @@ class _DashboardScreenState extends State<DashboardScreen>
           tabs: const [
             Tab(icon: Icon(Icons.code), text: 'Code'),
             Tab(icon: Icon(Icons.shield), text: 'Security'),
+            Tab(icon: Icon(Icons.auto_awesome), text: 'Generate'),
           ],
         ),
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: const [CodeWorkspacePanel(), SecurityMetricsPanel()],
+            children: const [
+              CodeWorkspacePanel(),
+              SecurityMetricsPanel(),
+              GeneratePanel(),
+            ],
           ),
         ),
       ],

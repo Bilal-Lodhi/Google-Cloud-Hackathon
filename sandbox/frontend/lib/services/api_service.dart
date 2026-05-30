@@ -33,21 +33,44 @@ class ApiService {
   // ── Autonomous Test Suite Generator ────────────────────────────────────────
   Future<GeneratedSuite> generateSuite(String prompt) async {
     final uri = Uri.parse('$baseUrl/api/v1/generate');
-    final response = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'prompt': prompt,
-            'roleContext': 'fullstack-typescript',
-          }),
-        )
-        .timeout(const Duration(seconds: 60));
-    if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'Suite generation failed');
+    http.Response response;
+    try {
+      response = await _client
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'prompt': prompt,
+              'roleContext': 'fullstack-typescript',
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
+    } on TimeoutException {
+      throw ApiException(
+        503,
+        'Suite generation timed out — Gemini may be overloaded',
+      );
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return GeneratedSuite.fromJson(body);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return GeneratedSuite.fromJson(body);
+    }
+
+    // ── Extract server-side error detail for better UX ────────────────────
+    String detail;
+    try {
+      final errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+      detail = (errorBody['error'] as String?) ?? response.body;
+      // Prefer the structured server error message
+      if (detail.isEmpty) detail = response.body;
+    } catch (_) {
+      detail = response.body.isNotEmpty
+          ? response.body.substring(0, Math.min(response.body.length, 256))
+          : 'Suite generation failed';
+    }
+
+    throw ApiException(response.statusCode, detail);
   }
 
   // ── Live Guardian Stream (SSE with Polling Fallback) ───────────────────────
@@ -166,11 +189,26 @@ class ApiService {
   }
 }
 
+class Math {
+  static int min(int a, int b) => a < b ? a : b;
+}
+
 class ApiException implements Exception {
   final int statusCode;
   final String message;
 
   const ApiException(this.statusCode, this.message);
+
+  /// 503 Service Unavailable or 504 Gateway Timeout — temporary,
+  /// downstream service (Gemini) may recover.
+  bool get isRetryable =>
+      statusCode == 503 ||
+      statusCode == 504 ||
+      (statusCode >= 500 && message.toLowerCase().contains('timed out')) ||
+      message.toLowerCase().contains('overloaded');
+
+  /// True when auto-retries are appropriate (5xx except explicitly terminal).
+  bool get isTransient => statusCode >= 500 && statusCode < 600;
 
   @override
   String toString() => 'ApiException($statusCode): $message';

@@ -174,7 +174,8 @@ Google-Cloud-Hackathon/
 
 - **Node.js** ≥ 22
 - **Google Cloud Project** with [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com) enabled
-- **Gemini API Key** → set as `GEMINI_API_KEY`
+- **Application Default Credentials (ADC)** — authenticate via `gcloud auth application-default login`
+- **GCP Project ID + Location** → set `GCP_PROJECT_ID` and `GCP_LOCATION` in `.env`
 - **MongoDB Atlas** connection string → set as `MONGODB_URI`
 - **Flutter SDK** ≥ 3.24 (for the review panel)
 
@@ -190,11 +191,19 @@ npm install
 ```bash
 cp hono-api/.env.example hono-api/.env
 cp mcp-server/.env.example mcp-server/.env
-# Edit both .env files with your GEMINI_API_KEY and MONGODB_URI
+# Edit hono-api/.env with your GCP_PROJECT_ID, GCP_LOCATION, and MONGODB_URI
+# Edit mcp-server/.env with your MONGODB_URI
 ```
 
-See `.env.example` for all available options including `GEMINI_REQUEST_TIMEOUT_MS`
-(default 90s) and anti-cheat thresholds.
+See `.env.example` for all available options including `GCP_LOCATION`
+(default: `global`), `GEMINI_REQUEST_TIMEOUT_MS` (default 90s), and anti-cheat
+thresholds.
+
+> **🔐 Authentication**: No API key is required. Cerberus authenticates via
+> **Application Default Credentials (ADC)**. Run `gcloud auth application-default login`
+> once on your machine. On Cloud Run, ADC is auto-injected by the GCP metadata
+> server. See the [Vertex AI Setup Guide](#-vertex-ai-setup-for-judges--cloners)
+> below for one-shot configuration.
 
 ### 3. Set Up MongoDB Indexes (Required for Performance)
 
@@ -385,18 +394,101 @@ All operations use the MongoDB Node.js native driver with Atlas connection pooli
 
 ---
 
-## 🔒 Security — API Key & Environment Handling
+## 🔐 Vertex AI Setup for Judges & Cloners
 
-All API keys, project IDs, and connection strings are read **exclusively from
-environment variables** via `process.env`. No hardcoded credentials exist in
-any source file:
+Cerberus AI uses **Google Cloud Vertex AI** with **Application Default
+Credentials (ADC)** — no API keys required. Follow these one-shot steps:
 
-- `GEMINI_API_KEY` — Vertex AI Gemini 3 Flash authentication
-- `MONGODB_URI` — MongoDB Atlas connection string
-- `MCP_API_KEY` — Internal MCP server authentication
+### 1. Prerequisites
 
-The `.env.example` files contain only placeholder dummy values. Ensure
-`.env` is listed in `.gitignore` before committing:
+- A Google Cloud project with the **Vertex AI API** enabled → [Enable API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)
+- The `gcloud` CLI installed → [Install gcloud](https://cloud.google.com/sdk/docs/install)
+
+### 2. Authenticate Locally
+
+```bash
+gcloud auth application-default login
+```
+
+This creates an ADC file at one of:
+- **Windows**: `%APPDATA%/gcloud/application_default_credentials.json`
+- **Linux/macOS**: `~/.config/gcloud/application_default_credentials.json`
+
+The app auto-discovers this file on startup. No manual path configuration
+needed.
+
+### 3. Configure Environment
+
+```bash
+cd sandbox
+cp hono-api/.env.example hono-api/.env
+cp mcp-server/.env.example mcp-server/.env
+```
+
+Edit `hono-api/.env` with your values:
+
+```env
+# REQUIRED: Your GCP project ID
+GCP_PROJECT_ID=webscraping-464710
+
+# Vertex AI regional endpoint — use "global" for Gemini 3 Flash Preview
+GCP_LOCATION=global
+
+# Model (hackathon-mandated)
+GEMINI_MODEL=gemini-3-flash-preview
+```
+
+> 💡 **Why `global`?** The `gemini-3-flash-preview` model resolves reliably on
+> the Vertex AI `global` endpoint across all GCP billing accounts. Regional
+> endpoints (`us-central1`, etc.) may return 404s during preview phases. The
+> app includes an automatic fallback to `gemini-2.5-flash` as a safeguard.
+
+### 4. Verify Setup
+
+```bash
+cd sandbox/hono-api
+node -e "
+const{G}=require('@google/genai');
+async function t(){
+  const a=new G({vertexai:true,project:'YOUR_PROJECT_ID',location:'global'});
+  const r=await a.models.generateContent({model:'gemini-3-flash-preview',
+    contents:[{role:'user',parts:[{text:'Say: OK'}]}],
+    config:{maxOutputTokens:10,temperature:0}});
+  console.log(r.candidates[0].content.parts[0].text.trim());
+};t();
+"
+# Expected output: "OK"
+```
+
+### 5. Cloud Run (Production)
+
+No additional setup needed. Cloud Run automatically injects ADC via the
+GCP metadata server. Just deploy with:
+
+```bash
+gcloud builds submit --config=cloudbuild.yaml
+gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
+  --platform=managed --region=us-central1 --allow-unauthenticated \
+  --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCP_LOCATION=global
+```
+
+---
+
+## 🔒 Security — Credential Handling
+
+All project IDs, connection strings, and configuration values are read
+**exclusively from environment variables** via `process.env`. No hardcoded
+credentials exist in any source file:
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `GCP_PROJECT_ID` | Vertex AI project identification | ✅ Yes |
+| `GCP_LOCATION` | Vertex AI regional endpoint | ✅ Yes |
+| `MONGODB_URI` | MongoDB Atlas connection string | ✅ Yes |
+| `MCP_API_KEY` | Internal MCP server authentication | No |
+
+The `.env.example` files contain only placeholder values. `.env` is listed
+in `.gitignore`:
 
 ```gitignore
 # In .gitignore (already configured)
@@ -436,10 +528,10 @@ Streaming micro-event processor:
 | **Legacy Code Ban** | ✅ PASS | Zero imports from external legacy codebases |
 | **Repository Isolation Rule** | ✅ PASS | Fresh Git history — all original work within hackathon window (May 5 – June 11, 2026) |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder for orchestration; Hono API as security/validation webhook runtime |
-| **Gemini Model** | ✅ PASS | Exclusive use of `gemini-3-flash-preview` via Google Cloud Vertex AI native fetch |
+| **Gemini Model** | ✅ PASS | Exclusive use of `gemini-3-flash-preview` via `@google/genai` Vertex AI SDK with ADC |
 | **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 11 registered tools |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, AWS Bedrock, or external AI dependencies |
-| **Google Native Routing** | ✅ PASS | All model calls use native `fetch()` to Vertex AI Gemini API (no third-party SDKs) |
+| **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC authentication) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repository root |
 | **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
 | **MongoDB Indexes** | ✅ PASS | Documented `createIndex()` commands + automatic `ensureIndexes()` on MCP startup |
