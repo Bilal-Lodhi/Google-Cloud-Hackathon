@@ -592,9 +592,20 @@ export class GeminiClient {
   private buildOrchestratorSystemInstruction(
     prompt: OrchestratorPrompt
   ): string {
-    return `You are an expert technical assessment architect specializing in the "${prompt.roleContext}" domain.
+    // Derive whether this is a software-engineering domain from roleContext
+    const isSoftwareDomain =
+      prompt.roleContext.toLowerCase().includes('software') ||
+      prompt.roleContext.toLowerCase().includes('engineering') ||
+      prompt.roleContext.toLowerCase().includes('data-science') ||
+      prompt.roleContext.toLowerCase().includes('cybersecurity');
 
-Your task is to generate a complete, production-grade technical assessment test suite in valid JSON format.
+    const domainGuidance = isSoftwareDomain
+      ? `- This is a software/engineering domain. Favor "coding" and "mcq" problem types. Include starter code, test cases, and language specs for coding problems.`
+      : `- This is a non-software domain ("${prompt.roleContext}"). DO NOT generate "coding" problem types. Use ONLY "mcq", "essay", and "interactive" problem types appropriate for this domain. Do NOT include starterCode, testCases, or language fields. Focus on domain-specific scenarios, case studies, situational judgment, and knowledge assessment.`;
+
+    return `You are an expert assessment architect specializing in the "${prompt.roleContext}" domain.
+
+Your task is to generate a complete, production-grade assessment test suite in valid JSON format.
 The output must conform to the following TypeScript interface:
 
 \`\`\`typescript
@@ -624,7 +635,7 @@ interface GeneratedTestSuite {
     problemType: "mcq" | "coding" | "essay" | "interactive";
     title: string;
     body: string;             // Markdown description
-    language?: string;        // e.g. "typescript", "python"
+    language?: string;        // e.g. "typescript", "python" (ONLY for coding type)
     starterCode?: string;
     testCases?: Array<{
       caseId: string;
@@ -667,9 +678,10 @@ RULES:
 - Return ONLY valid JSON (no markdown wrappers, no explanatory text outside the JSON object).
 - Generate EXACTLY ${prompt.problemCount} problems.
 - Distribute difficulty: beginner=${prompt.difficultyMix.beginner}, intermediate=${prompt.difficultyMix.intermediate}, advanced=${prompt.difficultyMix.advanced}.
-- For coding problems, include starter code and at least 3 hidden test cases.
+${domainGuidance}
 - For MCQ problems, include exactly 4 options with one correct answer and explanations.
-- Generate 3-5 competencies relevant to the "${prompt.roleContext}" role.
+- EVERY role title, competency name, competency description, and problem MUST be scoped to the "${prompt.roleContext}" domain. Do NOT introduce concepts from unrelated domains (e.g., no TypeScript, React, or SQL in a legal/medical/finance domain unless explicitly relevant).
+- Generate 3-5 competencies relevant to the "${prompt.roleContext}" domain.
 - Every problem must reference a valid competencyId.
 - Include at least one testing matrix per problem.
 - Anti-cheat thresholds should be reasonable defaults.`;

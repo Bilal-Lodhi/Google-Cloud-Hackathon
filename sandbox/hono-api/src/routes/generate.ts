@@ -75,6 +75,20 @@ generateRouter.post("/", async (c) => {
     );
   }
 
+  // ── Semantic prompt validation: reject trivial/non-assessment inputs ──
+  const trimmedPrompt = body.prompt.trim();
+  const semanticError = validateAssessmentPrompt(trimmedPrompt);
+  if (semanticError) {
+    console.warn(
+      `[Generate Route] [${requestId}] Semantic validation failed: "${semanticError}" — ` +
+        `prompt="${trimmedPrompt.substring(0, 80)}..."`
+    );
+    return c.json(
+      { success: false, error: semanticError, correlationId: requestId },
+      400
+    );
+  }
+
   if (!body.roleContext || typeof body.roleContext !== "string") {
     console.warn(`[Generate Route] [${requestId}] Validation failed: missing 'roleContext'`);
     return c.json(
@@ -281,6 +295,92 @@ async function sha256(input: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ─── Semantic Prompt Validation ────────────────────────────────────
+
+/**
+ * Rejects prompts that are clearly not valid assessment-generation requests.
+ *
+ * Cerberus-AI is a test suite generator, not a general-purpose chatbot.
+ * Trivial greetings, single-word inputs, or prompts shorter than a meaningful
+ * assessment description are rejected early — before wasting a Gemini API call.
+ *
+ * Returns a user-facing error message if the prompt is invalid, or `null` if
+ * the prompt passes semantic validation.
+ */
+function validateAssessmentPrompt(prompt: string): string | null {
+  const MIN_WORD_COUNT = 4;
+  const MIN_LENGTH = 20;
+
+  // ── Trivial / greeting-only prompts ──────────────────────────────
+  const trivialPatterns = [
+    /^(hi|hey|hello|yo|sup|hola|howdy|greetings)[\s!.,]*$/i,
+    /^(good\s+(morning|afternoon|evening|night))[\s!.,]*$/i,
+    /^(what('s|\s+is)\s+up|how\s+are\s+you|wyd|wbu)[\s?.,]*$/i,
+    /^(ok|okay|k|kk|alright|fine|cool|nice|great|awesome|thanks|thx|ty|bye)[\s!.,]*$/i,
+    /^(test|testing|test\s+1\s*2\s*3)[\s!.,]*$/i,
+    /^(help|what\s+is\s+this|what\s+do\s+you\s+do)[\s?.,]*$/i,
+  ];
+
+  if (trivialPatterns.some((p) => p.test(prompt))) {
+    return (
+      'This is an assessment test-suite generator. Please describe the role, ' +
+      'skills, or competencies you want to assess. For example:\n' +
+      '"Generate a senior TypeScript coding assessment covering async patterns, ' +
+      'generics, and React hooks."'
+    );
+  }
+
+  // ── Too short (single word or token) ─────────────────────────────
+  const words = prompt.split(/\s+/).filter((w) => w.length > 0);
+
+  if (prompt.length < MIN_LENGTH) {
+    return (
+      `Prompt must be at least ${MIN_LENGTH} characters. ` +
+      'Please provide a meaningful description of the assessment you want to generate.'
+    );
+  }
+
+  if (words.length < MIN_WORD_COUNT) {
+    return (
+      'Prompt is too short. Please describe the role, skills, or competencies ' +
+      'you want to assess. Provide at least a sentence or two.'
+    );
+  }
+
+  // ── Missing assessment-related keywords ──────────────────────────
+  const assessmentKeywords = [
+    'test', 'assess', 'assessment', 'exam', 'quiz', 'evaluate',
+    'generate', 'create', 'build', 'design', 'problem',
+    'coding', 'programming', 'developer', 'engineer', 'architect',
+    'typescript', 'javascript', 'python', 'java', 'rust', 'go', 'c#',
+    'react', 'angular', 'vue', 'node', 'express', 'next', 'nestjs',
+    'frontend', 'backend', 'fullstack', 'full-stack', 'devops',
+    'senior', 'junior', 'lead', 'principal', 'staff',
+    'competency', 'skill', 'proficiency', 'knowledge', 'ability',
+    'algorithm', 'data structure', 'system design', 'architecture',
+    'database', 'sql', 'nosql', 'mongodb', 'postgres',
+    'api', 'rest', 'graphql', 'grpc',
+    'cloud', 'aws', 'gcp', 'azure', 'docker', 'kubernetes',
+  ];
+
+  const promptLower = prompt.toLowerCase();
+  const hasAssessmentIntent = assessmentKeywords.some((kw) =>
+    promptLower.includes(kw)
+  );
+
+  if (!hasAssessmentIntent) {
+    return (
+      'Your prompt does not appear to describe an assessment or test scenario. ' +
+      'Please include details like the target role, skills to assess, problem ' +
+      'types, or difficulty level. For example:\n' +
+      '"Create a Python coding test for mid-level backend engineers focusing on ' +
+      'async I/O, database queries, and REST API design."'
+    );
+  }
+
+  return null; // Prompt passes all validations
 }
 
 export { generateRouter };
