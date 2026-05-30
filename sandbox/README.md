@@ -407,6 +407,16 @@ The Guardian operates as a streaming micro-event processor:
 
 ---
 
+## 🕓 Recent Commits
+
+| Commit | Message |
+|--------|---------|
+| [`f6cb316`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/f6cb316) | feat(ui): overhaul generate panel with enhanced dashboard and theme support |
+| [`bc526f8`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/bc526f8) | feat(frontend): update generate model, provider, and API service layer |
+| [`c8af04b`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/c8af04b) | feat(api): enhance generate route and Gemini client integration |
+
+---
+
 ## 📄 License
 
 Apache 2.0 — See [LICENSE](../LICENSE) for full text.
