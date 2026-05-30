@@ -54,7 +54,9 @@ class ApiService {
 
     if (response.statusCode == 200 || response.statusCode == 201) {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-      return GeneratedSuite.fromJson(body);
+      // Unwrap the response envelope: { success, suite, mcpCorrelationId }
+      final suiteJson = body['suite'] as Map<String, dynamic>? ?? body;
+      return GeneratedSuite.fromJson(suiteJson);
     }
 
     // ── Extract server-side error detail for better UX ────────────────────

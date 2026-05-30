@@ -372,6 +372,11 @@ class _SuiteOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final meta = suite.metadata;
+    // Derive a human-readable title from the first problem or competency
+    final derivedTitle = suite.problems.isNotEmpty
+        ? suite.problems.first.title
+        : (suite.competencies.isNotEmpty ? suite.competencies.first.name : '');
     return Card(
       elevation: 0,
       color: theme.colorScheme.primaryContainer,
@@ -382,7 +387,7 @@ class _SuiteOverviewCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              suite.title.isNotEmpty ? suite.title : 'Untitled Suite',
+              derivedTitle.isNotEmpty ? derivedTitle : 'Untitled Suite',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.onPrimaryContainer,
                 fontWeight: FontWeight.w600,
@@ -390,7 +395,7 @@ class _SuiteOverviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Suite ID: ${suite.suiteId}',
+              'Suite ID: ${meta.suiteId}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onPrimaryContainer.withValues(
                   alpha: 0.7,
@@ -406,7 +411,7 @@ class _SuiteOverviewCard extends StatelessWidget {
 }
 
 class _RoleCard extends StatelessWidget {
-  final Role role;
+  final RoleDescriptor role;
   const _RoleCard({required this.role});
 
   @override
@@ -420,23 +425,21 @@ class _RoleCard extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: theme.colorScheme.secondaryContainer,
           child: Text(
-            role.weight.toString(),
+            role.seniorityLevel.substring(0, 1).toUpperCase(),
             style: TextStyle(
-              fontSize: 12,
-              fontFamily: 'monospace',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
               color: theme.colorScheme.onSecondaryContainer,
             ),
           ),
         ),
         title: Text(role.title, style: theme.textTheme.bodyMedium),
-        subtitle: role.description.isNotEmpty
-            ? Text(
-                role.description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
-              )
-            : null,
+        subtitle: Text(
+          role.seniorityLevel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall,
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       ),
     );
@@ -444,15 +447,12 @@ class _RoleCard extends StatelessWidget {
 }
 
 class _CompetencyCard extends StatelessWidget {
-  final Competency competency;
+  final CompetencyTree competency;
   const _CompetencyCard({required this.competency});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scoreFraction = competency.maxScore > 0
-        ? ' / ${competency.maxScore}'
-        : '';
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 6),
@@ -460,16 +460,16 @@ class _CompetencyCard extends StatelessWidget {
       child: ListTile(
         leading: Icon(Icons.star, size: 20, color: theme.colorScheme.secondary),
         title: Text(competency.name, style: theme.textTheme.bodyMedium),
-        subtitle: competency.rubric.isNotEmpty
+        subtitle: competency.description.isNotEmpty
             ? Text(
-                competency.rubric,
+                competency.description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall,
               )
             : null,
         trailing: Text(
-          '0$scoreFraction',
+          '${(competency.weight * 100).round()}%',
           style: theme.textTheme.labelSmall?.copyWith(fontFamily: 'monospace'),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -479,17 +479,18 @@ class _CompetencyCard extends StatelessWidget {
 }
 
 class _ProblemCard extends StatelessWidget {
-  final Problem problem;
+  final GeneratedProblem problem;
   const _ProblemCard({required this.problem});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final typeColor = switch (problem.type) {
+    final typeColor = switch (problem.problemType) {
       'coding' => Colors.teal,
-      'multiple_choice' => Colors.orange,
+      'mcq' => Colors.orange,
       'design' => Colors.purple,
       'essay' => Colors.indigo,
+      'interactive' => Colors.blue,
       _ => theme.colorScheme.secondary,
     };
     return Card(
@@ -504,7 +505,7 @@ class _ProblemCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
-            problem.type.replaceAll('_', ' ').toUpperCase(),
+            problem.problemType.toUpperCase(),
             style: TextStyle(
               fontSize: 10,
               color: typeColor,
@@ -513,7 +514,7 @@ class _ProblemCard extends StatelessWidget {
           ),
         ),
         title: Text(
-          problem.prompt,
+          problem.title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium,
@@ -523,7 +524,7 @@ class _ProblemCard extends StatelessWidget {
             Icon(Icons.timer, size: 14, color: theme.colorScheme.outline),
             const SizedBox(width: 4),
             Text(
-              '${problem.timeLimitMinutes} min',
+              '${problem.timeAllocationSeconds ~/ 60} min',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(width: 12),
@@ -564,10 +565,10 @@ class _MetadataFooter extends StatelessWidget {
         spacing: 16,
         runSpacing: 4,
         children: [
-          _MetaChip(Icons.model_training, metadata.modelUsed),
-          _MetaChip(Icons.memory, '${metadata.tokenCount} tokens'),
+          _MetaChip(Icons.model_training, metadata.modelVersion),
+          _MetaChip(Icons.memory, '${metadata.tokenUsage.totalTokens} tokens'),
           _MetaChip(Icons.calendar_today, formatted),
-          _MetaChip(Icons.info, 'v${metadata.schemaVersion}'),
+          _MetaChip(Icons.info, 'v1.0'),
         ],
       ),
     );
