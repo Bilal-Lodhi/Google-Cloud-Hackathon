@@ -157,17 +157,36 @@ generateRouter.post("/", async (c) => {
     return c.json(response, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown agent error";
+    const stack = error instanceof Error ? error.stack : "";
     console.error(
       `[Generate Route] [${requestId}] FAILURE — ${message}`,
-      error instanceof Error ? error.stack : ""
+      stack
     );
+
+    // ── Classify error for proper HTTP status ────────────────────
+    // 503: Gemini is overloaded / timed out — client should retry
+    // 500: Unexpected / internal error — may not be retryable
+    const isGeminiOverloaded =
+      message.includes("Gemini request failed after") ||
+      message.includes("timed out after") ||
+      message.includes("overloaded") ||
+      message.includes("Gemini API error 503") ||
+      message.includes("Gemini API error 504") ||
+      message.includes("Gemini API error 429");
+
+    const statusCode = isGeminiOverloaded ? 503 : 500;
+    const userError = isGeminiOverloaded
+      ? "Gemini is currently busy. Please retry in a moment."
+      : `Test suite generation failed: ${message}`;
+
     return c.json(
       {
         success: false,
-        error: `Test suite generation failed: ${message}`,
+        error: userError,
         correlationId: requestId,
+        retryable: isGeminiOverloaded,
       },
-      500
+      statusCode
     );
   }
 });
