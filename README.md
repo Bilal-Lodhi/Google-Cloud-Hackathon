@@ -320,7 +320,23 @@ large-suite generation. Supports explicit role targeting and problem count tunin
 |-------|------|----------|---------|-------------|
 | `prompt` | `string` | ✅ Yes | — | Natural-language description of the assessment domain |
 | `roleContext` | `string` | No | `"mid-level developer"` | Target seniority level for competency calibration |
-| `problemCount` | `number` | No | `5` | Number of coding problems to generate (1–10) |
+| `problemCount` | `number` | No | `5` | Number of coding problems to generate (1–20) |
+
+#### Gemini-First Semantic Intake Classifier
+
+Every prompt is routed through a two-stage Gemini classifier
+(`classifyAssessmentIntent`) before generation:
+
+- **Stage 1 — Meaningfulness**: Gemini determines if the input is coherent
+  language (rejecting gibberish, single words, greetings, keyboard mashing)
+- **Stage 2 — Assessment Relevance**: Validates the input describes a test/
+  assessment generation request, detecting the domain and assessment type
+- Returns a verdict with `confidence` score, `detectedDomain`, and
+  `detectedAssessmentType`
+- Robust JSON response parsing with a three-tier fallback chain: direct parse
+  → `repairJson()` → `extractJsonObject()`
+- Every response includes a `pipeline` diagnostics field exposing the
+  classifier's decision, enabling full observability
 
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
@@ -548,13 +564,6 @@ Streaming micro-event processor:
 
 ---
 
-## 🕓 Recent Commits
-
-| Commit | Message |
-|--------|---------|
-| [`f6cb316`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/f6cb316) | feat(ui): overhaul generate panel with enhanced dashboard and theme support |
-| [`bc526f8`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/bc526f8) | feat(frontend): update generate model, provider, and API service layer |
-| [`c8af04b`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/c8af04b) | feat(api): enhance generate route and Gemini client integration |
 
 ---
 

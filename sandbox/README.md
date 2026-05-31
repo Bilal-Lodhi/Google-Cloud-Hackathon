@@ -258,6 +258,22 @@ and problem count tuning.
 **Response:** Complete `GeneratedTestSuite` object with metadata, roles,
 competencies, problems, and hidden testing matrices. See `types.ts` for full schema.
 
+#### Gemini-First Semantic Intake Classifier
+
+Every prompt is routed through a two-stage Gemini classifier
+(`classifyAssessmentIntent`) before generation:
+
+- **Stage 1 — Meaningfulness**: Gemini determines if the input is coherent
+  language (rejecting gibberish, single words, greetings, keyboard mashing)
+- **Stage 2 — Assessment Relevance**: Validates the input describes a test/
+  assessment generation request, detecting the domain and assessment type
+- Returns a verdict with `confidence` score, `detectedDomain`, and
+  `detectedAssessmentType`
+- Robust JSON response parsing with a three-tier fallback chain: direct parse
+  → `repairJson()` → `extractJsonObject()`
+- Every response includes a `pipeline` diagnostics field exposing the
+  classifier's decision, enabling full observability
+
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
 Streams micro-events to Gemini for real-time integrity analysis.
@@ -297,8 +313,7 @@ Flutter review panel drawer to populate the session list.
       "eventCount": 12
     }
   ]
-}
-```
+}```
 
 ### `GET /api/v1/sessions/:sessionId/review` — Review Log
 
@@ -407,28 +422,6 @@ The Guardian operates as a streaming micro-event processor:
 
 ---
 
-## 🕓 Recent Commits
-
-| Commit | Message |
-|--------|---------|
-| [`f6cb316`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/f6cb316) | feat(ui): overhaul generate panel with enhanced dashboard and theme support |
-| [`bc526f8`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/bc526f8) | feat(frontend): update generate model, provider, and API service layer |
-| [`c8af04b`](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon/commit/c8af04b) | feat(api): enhance generate route and Gemini client integration |
-
----
-
-## 📄 License
-
-Apache 2.0 — See [LICENSE](../LICENSE) for full text.
-
----
-
-## 🎥 Submission Assets
-
-- **Repository**: [https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon)
-  (subdirectory: `Google-Cloud-Hackathon/sandbox/`)
-- **Demo Video**: Provided in the `Google-Cloud-Hackathon/video/` directory
-- **Live App**: Deployed via Google Cloud Run (URL provided in submission)
 
 ---
 
