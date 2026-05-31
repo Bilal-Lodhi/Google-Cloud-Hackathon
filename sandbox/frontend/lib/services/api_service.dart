@@ -11,6 +11,31 @@ import '../models/guardian_model.dart';
 /// Every call routes through Google Cloud-native fetch bindings (via Dart http)
 /// with zero legacy dependencies.
 
+class GenerateResult {
+  final GeneratedSuite? suite;
+  final String? generationRequestId;
+  final bool cancelled;
+  final String? error;
+
+  GenerateResult({
+    this.suite,
+    this.generationRequestId,
+    this.cancelled = false,
+    this.error,
+  });
+
+  factory GenerateResult.fromJson(Map<String, dynamic> json) {
+    final cancelled = json['cancelled'] == true;
+    final suiteJson = json['suite'] as Map<String, dynamic>?;
+    return GenerateResult(
+      suite: suiteJson != null ? GeneratedSuite.fromJson(suiteJson) : null,
+      generationRequestId: json['generationRequestId'] as String?,
+      cancelled: cancelled,
+      error: json['error'] as String?,
+    );
+  }
+}
+
 class ApiService {
   final String baseUrl;
   final http.Client _client;
@@ -31,25 +56,30 @@ class ApiService {
   }
 
   // ── Autonomous Test Suite Generator ────────────────────────────────────────
-  Future<GeneratedSuite> generateSuite(
+  Future<GenerateResult> generateSuite(
     String prompt, {
     required int problemCount,
     required String roleContext,
+    String? generationRequestId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/generate');
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (generationRequestId != null && generationRequestId.isNotEmpty) {
+      headers['X-Generation-Request-Id'] = generationRequestId;
+    }
     http.Response response;
     try {
       response = await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: headers,
             body: jsonEncode({
               'prompt': prompt,
               'roleContext': roleContext,
               'problemCount': problemCount,
             }),
           )
-          .timeout(const Duration(seconds: 60));
+          .timeout(const Duration(seconds: 120));
     } on TimeoutException {
       throw ApiException(
         503,
@@ -57,19 +87,17 @@ class ApiService {
       );
     }
 
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+
     if (response.statusCode == 200 || response.statusCode == 201) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      // Unwrap the response envelope: { success, suite, mcpCorrelationId }
-      final suiteJson = body['suite'] as Map<String, dynamic>? ?? body;
-      return GeneratedSuite.fromJson(suiteJson);
+      // Parse the full envelope to capture generationRequestId and cancelled flag
+      return GenerateResult.fromJson(body);
     }
 
     // ── Extract server-side error detail for better UX ────────────────────
     String detail;
     try {
-      final errorBody = jsonDecode(response.body) as Map<String, dynamic>;
-      detail = (errorBody['error'] as String?) ?? response.body;
-      // Prefer the structured server error message
+      detail = (body['error'] as String?) ?? response.body;
       if (detail.isEmpty) detail = response.body;
     } catch (_) {
       detail = response.body.isNotEmpty
@@ -78,6 +106,23 @@ class ApiService {
     }
 
     throw ApiException(response.statusCode, detail);
+  }
+
+  // ── Cancel in-flight generation ─────────────────────────────────────────
+  Future<void> cancelGeneration(String generationRequestId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/generate/cancel');
+    try {
+      await _client
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'generationRequestId': generationRequestId}),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // If cancel request itself fails (e.g. network), the generation
+      // will still complete or time out naturally — safe to ignore.
+    }
   }
 
   // ── Live Guardian Stream (SSE with Polling Fallback) ───────────────────────

@@ -467,6 +467,41 @@ engineering problems unless the domain is Software Engineering.''';
     context.read<GenerateProvider>().retry();
   }
 
+  /// Shows a confirmation dialog before cancelling generation.
+  void _confirmCancel(ThemeData theme) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(
+          Icons.warning_amber_rounded,
+          color: theme.colorScheme.error,
+          size: 32,
+        ),
+        title: const Text('Cancel Generation?'),
+        content: const Text(
+          'Are you sure you want to stop the current generation? '
+          'Your prompt and settings will be saved so you can resume later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Continue Generating'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              context.read<GenerateProvider>().cancel();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+            ),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final gen = context.watch<GenerateProvider>();
@@ -996,6 +1031,11 @@ engineering problems unless the domain is Software Engineering.''';
       return _buildLoadingState(theme);
     }
 
+    // ── Cancelled state with resume ─────────────────────────────────────
+    if (gen.isCancelled) {
+      return _buildCancelledState(theme, gen);
+    }
+
     // ── Error state with manual retry ────────────────────────────────────
     if (gen.error != null) {
       return _buildErrorState(theme, gen);
@@ -1040,7 +1080,85 @@ engineering problems unless the domain is Software Engineering.''';
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: () => _confirmCancel(theme),
+            icon: const Icon(Icons.stop_circle_outlined, size: 18),
+            label: const Text('Cancel Generation'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+              side: BorderSide(
+                color: theme.colorScheme.error.withValues(alpha: 0.5),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  // ── Cancelled (resume prompt) ──────────────────────────────────────────────
+  Widget _buildCancelledState(ThemeData theme, GenerateProvider gen) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.pause_circle_outline,
+              size: 48,
+              color: theme.colorScheme.tertiary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Generation Cancelled',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.tertiary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your prompt and settings have been saved. You can resume generation at any time.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => gen.resume(),
+              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+              label: const Text('Resume Generation'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.colorScheme.tertiary,
+                foregroundColor: theme.colorScheme.onTertiary,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => gen.reset(),
+              child: Text(
+                'Start Fresh',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
