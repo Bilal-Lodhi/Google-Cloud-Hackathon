@@ -81,6 +81,58 @@ export class GeminiClient {
   }
 
   // ───────────────────────────────────────────────────────────────
+  // Public: classifyAssessmentIntent
+  // ───────────────────────────────────────────────────────────────
+
+  /**
+   * Routes the raw user prompt through Gemini to determine whether it
+   * describes a valid assessment / test-suite generation request.
+   *
+   * Gemini is the sole arbiter — no pattern-matching pre-filtering.
+   * If Gemini judges the prompt to be non-assessment (greeting, chitchat,
+   * off-topic, etc.), this method returns `isAssessmentRelated: false`
+   * with Gemini's own explanation of why.
+   */
+  async classifyAssessmentIntent(
+    prompt: string,
+    roleContext: string
+  ): Promise<{
+    isInputMeaningful: boolean;
+    isAssessmentRelated: boolean;
+    reason: string;
+    confidence: number;
+    detectedDomain: string;
+    detectedAssessmentType: string;
+  }> {
+    console.log(
+      "[Gemini Ingestion] [classifyAssessmentIntent] Sending prompt to Gemini for classification..."
+    );
+    console.log(
+      `[Gemini Ingestion] [classifyAssessmentIntent] Prompt length=${prompt.length} ` +
+        `roleContext="${roleContext}"`
+    );
+
+    const systemInstruction = this.buildClassifierSystemInstruction();
+    const userMessage = this.buildClassifierUserMessage(prompt, roleContext);
+
+    const responseText = await this.sendVertexMessage(systemInstruction, userMessage);
+
+    console.log(
+      "[Gemini Ingestion] [classifyAssessmentIntent] Response received, parsing verdict..."
+    );
+    const verdict = this.parseClassifierResponse(responseText);
+    console.log(
+      `[Gemini Ingestion] [classifyAssessmentIntent] Verdict: isInputMeaningful=${verdict.isInputMeaningful} ` +
+        `isAssessmentRelated=${verdict.isAssessmentRelated} ` +
+        `confidence=${verdict.confidence} detectedDomain="${verdict.detectedDomain}" ` +
+        `detectedAssessmentType="${verdict.detectedAssessmentType}" ` +
+        `reason="${verdict.reason.substring(0, 120)}..."`
+    );
+
+    return verdict;
+  }
+
+  // ───────────────────────────────────────────────────────────────
   // Public: generateTestSuite
   // ───────────────────────────────────────────────────────────────
 
@@ -586,8 +638,152 @@ export class GeminiClient {
   }
 
   // ───────────────────────────────────────────────────────────────
+  // Classifier Response Parsing
+  // ───────────────────────────────────────────────────────────────
+
+  private parseClassifierResponse(rawText: string): {
+    isInputMeaningful: boolean;
+    isAssessmentRelated: boolean;
+    reason: string;
+    confidence: number;
+    detectedDomain: string;
+    detectedAssessmentType: string;
+  } {
+    let jsonText = rawText.trim();
+    jsonText = this.stripMarkdownFences(jsonText);
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    } catch (parseErr) {
+      const origError = (parseErr as Error).message;
+      console.error(
+        `[Gemini Ingestion] [parseClassifierResponse] JSON parse failure: ${origError}`
+      );
+      console.log(
+        "[Gemini Ingestion] [parseClassifierResponse] Attempting JSON repair..."
+      );
+      try {
+        const repaired = this.repairJson(jsonText);
+        parsed = JSON.parse(repaired) as Record<string, unknown>;
+      } catch (repairErr) {
+        console.error(
+          "[Gemini Ingestion] [parseClassifierResponse] JSON repair also failed:",
+          (repairErr as Error).message
+        );
+        try {
+          const extracted = this.extractJsonObject(jsonText);
+          parsed = JSON.parse(extracted) as Record<string, unknown>;
+        } catch {
+          // Default: assume it's NOT assessment-related on parse failure
+          return {
+            isInputMeaningful: false,
+            isAssessmentRelated: false,
+            reason:
+              "Unable to parse Gemini classifier response. Prompt does not appear to describe an assessment or test-suite request. Please provide a meaningful description of the role, skills, or competencies you want to assess.",
+            confidence: 0.99,
+            detectedDomain: "",
+            detectedAssessmentType: "",
+          };
+        }
+      }
+    }
+
+    const isInputMeaningful =
+      (parsed["isInputMeaningful"] as boolean) ?? false;
+    const isAssessmentRelated =
+      isInputMeaningful
+        ? ((parsed["isAssessmentRelated"] as boolean) ?? false)
+        : false;
+    const reason =
+      (parsed["reason"] as string) ??
+      "No reason provided by classifier.";
+    const confidence =
+      (parsed["confidence"] as number) ?? 0.5;
+    const detectedDomain =
+      (parsed["detectedDomain"] as string) ?? "";
+    const detectedAssessmentType =
+      (parsed["detectedAssessmentType"] as string) ?? "";
+
+    return {
+      isInputMeaningful,
+      isAssessmentRelated,
+      reason,
+      confidence,
+      detectedDomain,
+      detectedAssessmentType,
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────
   // Prompt Construction
   // ───────────────────────────────────────────────────────────────
+
+  /**
+   * Classifier system instruction: ask Gemini to judge whether the
+   * user's prompt describes a valid assessment / test-suite generation
+   * request. Gemini is the sole arbiter — no keyword lists or regex.
+   */
+  private buildClassifierSystemInstruction(): string {
+    return `You are a TWO-STAGE intake validator. Evaluate EVERY input through BOTH stages below.
+
+═══ STAGE 1: MEANINGFULNESS ═══
+Determine if the input is a real, coherent phrase or just random gibberish.
+
+isInputMeaningful = FALSE when the input is:
+- Random keyboard characters: "asdf", "qwerty", "bigert", "billoo", "helloo", "blarg", "flerben", "zibble", "gronk", "xyz123"
+- Single letters, numbers, or symbols: "a", "?", "7", ".", "test"
+- Any word that does NOT appear in a standard English dictionary AND is not a recognized technical term/acronym
+- A typo/misspelling that makes it unrecognizable: "helloo"→NOT "hello", "assesssment"→NOT "assessment"
+- Pure greeting/conversational filler: "hello", "hi", "hey", "yo", "sup", "good morning", "how are you", "lol"
+- Empty, whitespace-only, or just punctuation
+- 1-2 isolated real words with no complete request formed: "python", "developer", "assessment", "test"
+
+isInputMeaningful = TRUE when:
+- The input contains a coherent, grammatically intact phrase/sentence expressing a complete thought, question, or instruction
+- Examples: "generate a Python test", "create a React coding assessment for seniors", "I need DevOps interview questions"
+
+IMPORTANT: If isInputMeaningful is FALSE, you MUST set isAssessmentRelated=false, confidence=0.95-1.0, detectedDomain="", detectedAssessmentType="", and reason must explain that the input is not meaningful language.
+
+═══ STAGE 2: ASSESSMENT RELEVANCE ═══
+ONLY evaluate this stage if isInputMeaningful=true.
+
+isAssessmentRelated = FALSE when:
+- The meaningful input is NOT about creating tests/assessments: "tell me about Python", "what is React", "how does Kubernetes work"
+- It's a general question, information request, or conversation
+
+isAssessmentRelated = TRUE ONLY when the meaningful input explicitly requests generating/creating/building/designing a test, exam, quiz, assessment, coding challenge, or interview questions, AND specifies a real domain/role/skill area.
+
+detectedDomain: The domain (e.g., "Python backend", "React frontend", "DevOps"). Empty "" if not assessment-related.
+detectedAssessmentType: The type (e.g., "coding test", "MCQ exam", "skill matrix"). Empty "" if not.
+
+Return ONLY this JSON — no markdown, no extra text:
+{
+  "isInputMeaningful": boolean,
+  "isAssessmentRelated": boolean,
+  "reason": string,
+  "confidence": number,
+  "detectedDomain": string,
+  "detectedAssessmentType": string
+}`;
+  }
+
+  /**
+   * Classifier user message: sends the raw prompt and roleContext to
+   * Gemini along with clear classification instructions.
+   */
+  private buildClassifierUserMessage(
+    prompt: string,
+    roleContext: string
+  ): string {
+    return `Classify the following input as assessment-related or not.
+
+USER PROMPT: "${prompt}"
+
+ROLE CONTEXT: "${roleContext}"
+
+Is this a legitimate request to generate a test suite, assessment, or exam? Return a JSON verdict.`;
+  }
 
   private buildOrchestratorSystemInstruction(
     prompt: OrchestratorPrompt
