@@ -39,6 +39,9 @@ const generateRouter = new Hono();
 const config = loadConfig();
 const gemini = new GeminiClient(config);
 
+// ─── In-flight request tracking (for user-initiated cancellation) ──
+const ACTIVE_REQUESTS = new Map<string, AbortController>();
+
 // ─── MCP Grounding Constants ──────────────────────────────────────
 
 /** MCP HTTP Adapter base URL (sidecar on port 3001). */
@@ -196,11 +199,24 @@ generateRouter.post("/", async (c) => {
     elapsedMs: 0,
   };
 
+  // ── Register abort controller for cancellation ───────────────
+  // Client sends X-Generation-Request-Id header so both sides share
+  // the same ID before the request body is streamed, enabling cancel.
+  const generationRequestId =
+    c.req.header("X-Generation-Request-Id")?.trim() || crypto.randomUUID();
+  const abortController = new AbortController();
+  ACTIVE_REQUESTS.set(generationRequestId, abortController);
+  console.log(
+    `[Generate Route] [${requestId}] Registered abort controller — ` +
+      `generationRequestId=${generationRequestId}`,
+  );
+
   try {
     const classifierStartMs = Date.now();
     const verdict = await gemini.classifyAssessmentIntent(
       trimmedPrompt,
       body.roleContext,
+      abortController.signal,
     );
     const classifierElapsed = Date.now() - classifierStartMs;
 
@@ -331,6 +347,7 @@ generateRouter.post("/", async (c) => {
       enrichedPrompt,
       body.roleContext,
       problemCount,
+      abortController.signal,
     );
 
     const suiteElapsed = Date.now() - suiteStartMs;
@@ -361,7 +378,12 @@ generateRouter.post("/", async (c) => {
     console.log(
       `[Generate Route] [${requestId}] COMPLETE — 201 Created, correlationId=${mcpCorrelationId}`,
     );
-    return c.json(response, 201);
+    // Extend response with generationRequestId so the client can cancel
+    const responseWithCancel = {
+      ...response,
+      generationRequestId,
+    };
+    return c.json(responseWithCancel, 201);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown agent error";
@@ -370,6 +392,26 @@ generateRouter.post("/", async (c) => {
       `[Generate Route] [${requestId}] FAILURE — ${message}`,
       stack,
     );
+
+    // Check if this was a user-initiated cancellation
+    const isCancelled = message.includes("cancelled by user");
+
+    if (isCancelled) {
+      return c.json(
+        {
+          success: false,
+          error: "Generation cancelled by user. You can resume later.",
+          correlationId: requestId,
+          cancelled: true,
+          pipeline: buildPipelineDiag(
+            startedAt,
+            trimmedPrompt,
+            classifierDiag,
+          ),
+        },
+        200,
+      );
+    }
 
     const isGeminiOverloaded =
       message.includes("Gemini request failed after") ||
@@ -398,7 +440,78 @@ generateRouter.post("/", async (c) => {
       },
       statusCode,
     );
+  } finally {
+    ACTIVE_REQUESTS.delete(generationRequestId);
+    console.log(
+      `[Generate Route] [${requestId}] Removed abort controller — generationRequestId=${generationRequestId}`,
+    );
   }
+});
+
+// ─── POST /cancel ────────────────────────────────────────────────
+// Allows the frontend to cancel an in-flight generation request.
+// The client receives a generationRequestId field in the streaming
+// connection headers, and passes it here to abort the server-side
+// Gemini call.
+
+generateRouter.post("/cancel", async (c) => {
+  const requestId =
+    c.res.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
+
+  let body: { generationRequestId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: "Invalid JSON body — request must have a 'generationRequestId' field",
+        correlationId: requestId,
+      },
+      400,
+    );
+  }
+
+  if (!body.generationRequestId) {
+    return c.json(
+      {
+        success: false,
+        error: "Field 'generationRequestId' is required",
+        correlationId: requestId,
+      },
+      400,
+    );
+  }
+
+  const genRequestId = body.generationRequestId;
+  const controller = ACTIVE_REQUESTS.get(genRequestId);
+
+  if (!controller) {
+    console.warn(
+      `[Generate Route] [${requestId}] Cancel requested for unknown/inactive generation: ${genRequestId}`,
+    );
+    return c.json(
+      {
+        success: false,
+        error:
+          "No active generation found for this request ID. It may have already completed.",
+        correlationId: requestId,
+      },
+      404,
+    );
+  }
+
+  console.log(
+    `[Generate Route] [${requestId}] ABORTING generation ${genRequestId} per user request.`,
+  );
+  controller.abort();
+  ACTIVE_REQUESTS.delete(genRequestId);
+
+  return c.json({
+    success: true,
+    message: "Generation cancelled. You can resume later.",
+    correlationId: requestId,
+  });
 });
 
 // ─── MCP Persistence Helper ────────────────────────────────────────

@@ -95,7 +95,8 @@ export class GeminiClient {
    */
   async classifyAssessmentIntent(
     prompt: string,
-    roleContext: string
+    roleContext: string,
+    signal?: AbortSignal,
   ): Promise<{
     isInputMeaningful: boolean;
     isAssessmentRelated: boolean;
@@ -115,7 +116,7 @@ export class GeminiClient {
     const systemInstruction = this.buildClassifierSystemInstruction();
     const userMessage = this.buildClassifierUserMessage(prompt, roleContext);
 
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage);
+    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal);
 
     console.log(
       "[Gemini Ingestion] [classifyAssessmentIntent] Response received, parsing verdict..."
@@ -139,7 +140,8 @@ export class GeminiClient {
   async generateTestSuite(
     prompt: string,
     roleContext: string,
-    problemCount = 5
+    problemCount = 5,
+    signal?: AbortSignal,
   ): Promise<GeneratedTestSuite> {
     console.log(
       "[Gemini Ingestion] [generateTestSuite] Initiating request to model..."
@@ -159,7 +161,7 @@ export class GeminiClient {
     const systemInstruction = this.buildOrchestratorSystemInstruction(orchestratorPrompt);
     const userMessage = this.buildOrchestratorUserMessage(orchestratorPrompt);
 
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage);
+    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal);
 
     console.log(
       "[Gemini Ingestion] [generateTestSuite] Response received, parsing structured output..."
@@ -226,8 +228,14 @@ export class GeminiClient {
 
   private async sendVertexMessage(
     systemInstruction: string,
-    userMessage: string
+    userMessage: string,
+    signal?: AbortSignal,
   ): Promise<string> {
+    // Check if already aborted before starting
+    if (signal?.aborted) {
+      throw new Error("Gemini request cancelled by user");
+    }
+
     const { GoogleGenAI, HarmCategory, HarmBlockThreshold } = await loadGenAISDK();
 
     const ai = new GoogleGenAI({
@@ -239,6 +247,11 @@ export class GeminiClient {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      // Check abort signal before each attempt
+      if (signal?.aborted) {
+        throw new Error("Gemini request cancelled by user");
+      }
+
       try {
         console.log(
           `[Gemini Ingestion] [Vertex] Attempt ${attempt}/${MAX_RETRIES} — ` +
