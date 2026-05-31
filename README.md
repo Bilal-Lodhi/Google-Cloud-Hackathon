@@ -338,6 +338,27 @@ Every prompt is routed through a two-stage Gemini classifier
 - Every response includes a `pipeline` diagnostics field exposing the
   classifier's decision, enabling full observability
 
+#### Cancel & Resume Generation
+
+Long-running test suite generation can be cancelled mid-flight. A **Cancel Generation**
+button appears in the Flutter UI while Gemini is generating. Tapping it shows a
+confirmation dialog; on confirmation, the client sends a cancellation signal via
+`POST /api/v1/generate/cancel` with the `X-Generation-Request-Id` header.
+
+- **Cancel flow**: The Hono API registers an `AbortController` per request ID.
+  When a cancel request arrives, the controller aborts the in-flight Gemini
+  Vertex AI call, the stream terminates, and the server returns a `cancelled: true`
+  response. The UI transitions to a cancelled state with a **Resume Generation**
+  button.
+- **Resume flow**: Tapping Resume re-initiates generation with the exact same
+  prompt, role context, and problem count — but under a fresh request ID. The
+  client increments an internal `_generationSeq` counter to prevent stale
+  cancelled responses from clobbering the new request's loading state.
+- **Request correlation**: A UUID v4 `X-Generation-Request-Id` header is
+  generated client-side before the API call and sent with the request. The
+  server uses this ID to register the abort controller, ensuring the cancel
+  button targets the correct in-flight Gemini call.
+
 ### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
 
 Streams micro-events to Gemini 3 Flash for real-time integrity analysis.
