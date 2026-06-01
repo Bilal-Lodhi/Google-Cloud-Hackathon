@@ -8,6 +8,7 @@ import 'providers/health_provider.dart';
 import 'providers/generate_provider.dart';
 import 'providers/guardian_provider.dart';
 import 'providers/review_provider.dart';
+import 'providers/identity_provider.dart';
 
 /// ─── Cerberus AI — Entry Point ──────────────────────────────────────────────
 /// Initializes the Provider tree with ApiService and all feature providers,
@@ -31,6 +32,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => GenerateProvider(apiService)),
         ChangeNotifierProvider(create: (_) => GuardianProvider(apiService)),
         ChangeNotifierProvider(create: (_) => ReviewProvider(apiService)),
+        ChangeNotifierProvider(create: (_) => IdentityProvider(apiService)),
       ],
       child: const CerberusApp(),
     ),

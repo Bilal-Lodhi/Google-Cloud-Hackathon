@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/health_model.dart';
 import '../models/generate_model.dart';
 import '../models/guardian_model.dart';
+import '../models/identity_model.dart';
 
 /// ─── Cerberus AI — API Service ──────────────────────────────────────────────
 /// Thin HTTP / SSE connectivity layer targeting the Hono API gateway.
@@ -40,13 +41,56 @@ class ApiService {
   final String baseUrl;
   final http.Client _client;
 
+  /// Ephemeral session token injected into all API requests after
+  /// identity is set. Null = anonymous/no identity.
+  String? sessionToken;
+
   ApiService({required this.baseUrl}) : _client = http.Client();
+
+  /// Returns headers common to all API calls, including the session
+  /// token when an identity has been established.
+  Map<String, String> _commonHeaders() {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (sessionToken != null && sessionToken!.isNotEmpty) {
+      headers['X-Session-Token'] = sessionToken!;
+    }
+    return headers;
+  }
+
+  // ── Identity ───────────────────────────────────────────────────────────────
+  /// POST /api/v1/identity/set — registers display name + candidate ID,
+  /// returns ephemeral session token.
+  Future<IdentityResponse> setIdentity({
+    required String displayName,
+    required String candidateId,
+    String? role,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/identity/set');
+    final body = <String, dynamic>{
+      'displayName': displayName,
+      'candidateId': candidateId,
+    };
+    if (role != null && role.isNotEmpty) {
+      body['role'] = role;
+    }
+    final response = await _client
+        .post(uri, headers: _commonHeaders(), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 10));
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 201) {
+      return IdentityResponse.fromJson(responseBody);
+    }
+    throw ApiException(
+      response.statusCode,
+      (responseBody['error'] as String?) ?? 'Identity registration failed',
+    );
+  }
 
   // ── Health ─────────────────────────────────────────────────────────────────
   Future<HealthStatus> fetchHealth() async {
     final uri = Uri.parse('$baseUrl/health');
     final response = await _client
-        .get(uri)
+        .get(uri, headers: _commonHeaders())
         .timeout(const Duration(seconds: 10));
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, 'Health check failed');
@@ -72,7 +116,7 @@ class ApiService {
       response = await _client
           .post(
             uri,
-            headers: headers,
+            headers: {..._commonHeaders(), ...headers},
             body: jsonEncode({
               'prompt': prompt,
               'roleContext': roleContext,
@@ -115,7 +159,7 @@ class ApiService {
       await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: _commonHeaders(),
             body: jsonEncode({'generationRequestId': generationRequestId}),
           )
           .timeout(const Duration(seconds: 10));
@@ -134,6 +178,7 @@ class ApiService {
 
     try {
       final request = http.Request('GET', uri);
+      request.headers.addAll(_commonHeaders());
       final streamedResponse = await _client
           .send(request)
           .timeout(const Duration(seconds: 15));
@@ -186,7 +231,7 @@ class ApiService {
       final response = await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: _commonHeaders(),
             body: jsonEncode({
               'events': events.map((e) => e.toJson()).toList(),
             }),
@@ -205,7 +250,7 @@ class ApiService {
   Future<ReviewRecord> fetchReview(String sessionId) async {
     final uri = Uri.parse('$baseUrl/api/v1/sessions/$sessionId');
     final response = await _client
-        .get(uri)
+        .get(uri, headers: _commonHeaders())
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, 'Review fetch failed');
@@ -224,7 +269,7 @@ class ApiService {
   Future<List<SessionSummary>> fetchSessions() async {
     final uri = Uri.parse('$baseUrl/api/v1/sessions');
     final response = await _client
-        .get(uri)
+        .get(uri, headers: _commonHeaders())
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, 'Sessions list failed');

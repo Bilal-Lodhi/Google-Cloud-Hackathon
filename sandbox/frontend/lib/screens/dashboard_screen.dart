@@ -5,6 +5,7 @@ import '../providers/theme_provider.dart';
 import '../providers/health_provider.dart';
 import '../providers/guardian_provider.dart';
 import '../providers/review_provider.dart';
+import '../providers/identity_provider.dart';
 import '../widgets/code_workspace_panel.dart';
 import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
@@ -125,6 +126,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final theme = Theme.of(context);
     final health = context.watch<HealthProvider>();
     final review = context.watch<ReviewProvider>();
+    final identity = context.watch<IdentityProvider>();
 
     return Drawer(
       child: Column(
@@ -138,10 +140,72 @@ class _DashboardScreenState extends State<DashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(
-                  Icons.security,
-                  size: 36,
-                  color: theme.colorScheme.onPrimaryContainer,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.security,
+                      size: 36,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                    const Spacer(),
+                    // ── Identity block (name → ID → role) ──────────────────
+                    if (identity.isIdentified)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.2,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.person,
+                                  size: 14,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  identity.displayName!,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            identity.candidateId!,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onPrimaryContainer
+                                  .withValues(alpha: 0.7),
+                            ),
+                          ),
+                          if (identity.role != null) ...[
+                            const SizedBox(height: 1),
+                            Text(
+                              identity.role!,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onPrimaryContainer
+                                    .withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
