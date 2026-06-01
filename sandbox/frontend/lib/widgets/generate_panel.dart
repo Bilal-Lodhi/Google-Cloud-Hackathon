@@ -990,8 +990,8 @@ engineering problems unless the domain is Software Engineering.''';
         onSubmitted: isLoading ? null : (_) => _onGenerate(),
         decoration: InputDecoration(
           hintText:
-              'e.g. "Cover async/await, generics, React hooks, and error '
-              'handling patterns with real-world scenarios"',
+              'e.g. "Create an assessment covering core competencies, '
+              'scenario-based problems, and practical skill evaluation"',
           hintMaxLines: 2,
           filled: true,
           fillColor: theme.colorScheme.surfaceContainerHighest,
