@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/review_provider.dart';
 import '../models/guardian_model.dart';
@@ -7,8 +8,15 @@ import '../models/guardian_model.dart';
 /// Renders the candidate's final code submission in a syntax-highlighted
 /// monospace viewer. Supports language label badges and copy-to-clipboard.
 
-class CodeWorkspacePanel extends StatelessWidget {
+class CodeWorkspacePanel extends StatefulWidget {
   const CodeWorkspacePanel({super.key});
+
+  @override
+  State<CodeWorkspacePanel> createState() => _CodeWorkspacePanelState();
+}
+
+class _CodeWorkspacePanelState extends State<CodeWorkspacePanel> {
+  bool _copied = false;
 
   @override
   Widget build(BuildContext context) {
@@ -87,10 +95,31 @@ class CodeWorkspacePanel extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               IconButton(
-                icon: const Icon(Icons.copy, size: 18),
-                tooltip: 'Copy code',
+                icon: Icon(
+                  _copied ? Icons.check : Icons.copy,
+                  size: 18,
+                  color: _copied ? Colors.green : null,
+                ),
+                tooltip: _copied ? 'Code copied successfully' : 'Copy code',
                 onPressed: () {
-                  // Copy via Clipboard
+                  Clipboard.setData(ClipboardData(text: record.codeSubmission));
+                  setState(() => _copied = true);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Code copied successfully'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                      width: 220,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  );
+                  Future.delayed(const Duration(seconds: 3), () {
+                    if (mounted) {
+                      setState(() => _copied = false);
+                    }
+                  });
                 },
               ),
             ],
