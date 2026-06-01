@@ -127,7 +127,8 @@ Google-Cloud-Hackathon/
     │           ├── health.ts        # GET /health
     │           ├── generate.ts      # POST /api/v1/generate
     │           ├── guardian.ts      # POST /api/v1/guardian/ingest
-    │           └── review.ts        # GET /api/v1/sessions/:id/review
+    │           ├── review.ts        # GET /api/v1/sessions/:id/review
+    │           └── identity.ts      # POST /api/v1/identity/set · GET /api/v1/identity/me
     ├── mcp-server/                  # MCP Server (MongoDB Partner Track)
     │   ├── package.json
     │   ├── tsconfig.json
@@ -144,15 +145,18 @@ Google-Cloud-Hackathon/
             ├── models/
             │   ├── health_model.dart
             │   ├── generate_model.dart
-            │   └── guardian_model.dart
+            │   ├── guardian_model.dart
+            │   └── identity_model.dart
             ├── providers/
             │   ├── health_provider.dart
             │   ├── generate_provider.dart
             │   ├── guardian_provider.dart
             │   ├── review_provider.dart
-            │   └── theme_provider.dart
+            │   ├── theme_provider.dart
+            │   └── identity_provider.dart
             ├── screens/
-            │   └── dashboard_screen.dart
+            │   ├── dashboard_screen.dart
+            │   └── identity_setup_screen.dart
             ├── services/
             │   └── api_service.dart
             ├── theme/
@@ -344,6 +348,43 @@ suspicion reports.
 ### `GET /health` — Health Check
 
 Returns `{ "status": "ok", "timestamp": "..." }`
+
+### 🔐 Identity Endpoints (Personalization Layer)
+
+A lightweight, password-free identity system for persona-based evaluation
+demos. Identity is ephemeral — stored in-memory, reset on server restart.
+Production deployments integrate with Google Cloud Identity Platform.
+
+#### `POST /api/v1/identity/set` — Register Identity
+
+Sets the current session identity. Returns a `sessionToken` UUID that is
+automatically attached to all subsequent API calls via `X-Session-Token` header.
+
+**Request:**
+```json
+{
+  "displayName": "Alice Chen",
+  "candidateId": "CAND-001",
+  "role": "Senior Backend Engineer (optional)"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "displayName": "Alice Chen",
+    "candidateId": "CAND-001",
+    "role": "Senior Backend Engineer",
+    "sessionToken": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+#### `GET /api/v1/identity/me` — Get Current Identity
+
+Returns the currently registered identity for the session.
 
 ---
 

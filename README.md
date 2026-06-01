@@ -144,7 +144,8 @@ Google-Cloud-Hackathon/
     │           ├── health.ts          # GET /health
     │           ├── generate.ts        # POST /api/v1/generate
     │           ├── guardian.ts        # POST /api/v1/guardian/ingest
-    │           └── review.ts          # GET /api/v1/sessions/:id/review
+    │           ├── review.ts          # GET /api/v1/sessions/:id/review
+    │           └── identity.ts        # POST /api/v1/identity/set · GET /api/v1/identity/me
     ├── mcp-server/                    # MCP Server (MongoDB Partner Track)
     │   ├── package.json
     │   ├── tsconfig.json
@@ -159,11 +160,27 @@ Google-Cloud-Hackathon/
             ├── main.dart
             ├── app.dart
             ├── models/
+            │   ├── health_model.dart
+            │   ├── generate_model.dart
+            │   ├── guardian_model.dart
+            │   └── identity_model.dart
             ├── providers/
+            │   ├── health_provider.dart
+            │   ├── generate_provider.dart
+            │   ├── guardian_provider.dart
+            │   ├── review_provider.dart
+            │   ├── theme_provider.dart
+            │   └── identity_provider.dart
             ├── screens/
+            │   ├── dashboard_screen.dart
+            │   └── identity_setup_screen.dart
             ├── services/
+            │   └── api_service.dart
             ├── theme/
+            │   └── app_theme.dart
             └── widgets/
+                ├── code_workspace_panel.dart
+                └── security_metrics_panel.dart
 ```
 
 ---
@@ -407,6 +424,41 @@ and suspicion reports for the review panel.
 { "status": "ok", "timestamp": "2026-05-26T..." }
 ```
 
+### 🔐 Identity Endpoints (Personalization Layer)
+
+A lightweight, password-free identity system for persona-based evaluation
+demos. Identity is ephemeral — stored in-memory, reset on server restart.
+Production deployments integrate with Google Cloud Identity Platform.
+
+#### `POST /api/v1/identity/set` — Register Identity
+
+Sets the current session identity. Returns a `sessionToken` UUID that is
+automatically attached to all subsequent API calls via `X-Session-Token` header.
+
+```json
+// Request
+{
+  "displayName": "Alice Chen",
+  "candidateId": "CAND-001",
+  "role": "Senior Backend Engineer (optional)"
+}
+
+// Response
+{
+  "success": true,
+  "data": {
+    "displayName": "Alice Chen",
+    "candidateId": "CAND-001",
+    "role": "Senior Backend Engineer",
+    "sessionToken": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+#### `GET /api/v1/identity/me` — Get Current Identity
+
+Returns the currently registered identity for the session.
+
 ---
 
 ## 🗄️ MongoDB MCP Tools (MongoDB Partner Track)
@@ -579,12 +631,12 @@ Streaming micro-event processor:
 
 - **Material 3** design with full **dark/light theme** support
 - **Split-panel dashboard**: left = code workspace viewer, right = security metrics timeline
-- **Provider** state management across health, generation, guardian, and review flows
+- **Provider** state management across health, generation, guardian, review, and identity flows
 - Reactive **suspicion gauge** with color-coded severity indicators
 - SSE-powered live security event streaming
+- **Identity setup screen** — personalized persona selection for review demo sessions
 
 ---
-
 
 ---
 
