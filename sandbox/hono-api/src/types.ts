@@ -253,6 +253,20 @@ export interface TimelineEntry {
   detail: string;
 }
 
+// ─── Lightweight Identity Types (No Auth — Hackathon Demo) ─────────
+
+export interface IdentityPayload {
+  displayName: string;
+  candidateId: string;
+  role?: string;
+}
+
+export interface IdentityResponse {
+  success: boolean;
+  identity: IdentityPayload;
+  sessionToken: string; // ephemeral demo token (UUID, no crypto)
+}
+
 // ─── MCP Server Types (MongoDB Track) ──────────────────────────────
 
 export interface MCPToolCall {

@@ -25,6 +25,7 @@ import { healthRouter } from "./routes/health.js";
 import { generateRouter } from "./routes/generate.js";
 import { guardianRouter } from "./routes/guardian.js";
 import { reviewRouter } from "./routes/review.js";
+import { identityRouter } from "./routes/identity.js";
 import { loadConfig } from "./config.js";
 
 // ─── Configuration ─────────────────────────────────────────────────
@@ -40,7 +41,7 @@ const app = new Hono();
 app.use("*", cors({
   origin: "*",
   allowMethods: ["GET", "POST", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Generation-Request-Id"],
+  allowHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Generation-Request-Id", "X-Session-Token"],
   exposeHeaders: ["X-Correlation-Id", "X-RateLimit-Remaining"],
   maxAge: 86400,
 }));
@@ -63,6 +64,7 @@ app.route("/health", healthRouter);
 app.route("/api/v1/generate", generateRouter);
 app.route("/api/v1/guardian", guardianRouter);
 app.route("/api/v1/sessions", reviewRouter);
+app.route("/api/v1/identity", identityRouter);
 
 // ─── 404 Handler ───────────────────────────────────────────────────
 
@@ -73,6 +75,8 @@ app.notFound((c) => {
       error: `Route not found: ${c.req.method} ${c.req.path}`,
       availableEndpoints: [
         "GET  /health",
+        "POST /api/v1/identity/set",
+        "GET  /api/v1/identity/me",
         "POST /api/v1/generate",
         "POST /api/v1/guardian/ingest",
         "GET  /api/v1/guardian/sessions/:sessionId",
