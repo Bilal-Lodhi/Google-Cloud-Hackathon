@@ -999,18 +999,11 @@ engineering problems unless the domain is Software Engineering.''';
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
           ),
-          suffixIcon: Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: isLoading
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: Padding(
-                      padding: EdgeInsets.all(8),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
+          suffixIcon: isLoading
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: IconButton(
                     icon: Icon(
                       Icons.send_rounded,
                       color: theme.colorScheme.primary,
@@ -1018,7 +1011,7 @@ engineering problems unless the domain is Software Engineering.''';
                     tooltip: 'Generate',
                     onPressed: _onGenerate,
                   ),
-          ),
+                ),
         ),
       ),
     );

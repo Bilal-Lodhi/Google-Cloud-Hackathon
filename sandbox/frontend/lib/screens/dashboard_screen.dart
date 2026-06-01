@@ -205,6 +205,25 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ],
                         ],
                       ),
+                    const SizedBox(width: 4),
+                    // ── Drawer close button ────────────────────────────────
+                    IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        size: 20,
+                        color: theme.colorScheme.onPrimaryContainer.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                      tooltip: 'Close drawer',
+                      onPressed: () => Navigator.pop(context),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
