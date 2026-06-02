@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Cerberus AI — Multi-Agent Assessment Ecosystem for Google Cloud Rapid Agent Hackathon 2026 (MongoDB Partner Track)",
+  "description": "Cerberus FinSec — Insider Threat & Data Exfiltration Guardian for Google Cloud Rapid Agent Hackathon 2026 (MongoDB Partner Track)",
   "workspaces": [
     "hono-api",
     "mcp-server"

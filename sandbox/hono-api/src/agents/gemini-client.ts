@@ -253,12 +253,23 @@ export class GeminiClient {
         console.error(`[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} FAILED: ${errMsg}`);
         lastError = error instanceof Error ? error : new Error(errMsg);
 
-        // Fallback: if gemini-3 404s, try gemini-2.5-flash
-        if (errMsg.includes("404") && this.model.includes("gemini-3")) {
-          console.warn("[Cerberus FinSec CISO] [Fallback] Gemini 3 404 → trying gemini-2.5-flash");
+        // Fallback: if gemini-3 gets 401 (cold-start auth race) or 404 (preview unavailable), try gemini-2.5-flash
+        const isAuthError = errMsg.includes("401") || errMsg.includes("UNAUTHENTICATED");
+        const isNotFound = errMsg.includes("404");
+        if ((isNotFound || isAuthError) && this.model.includes("gemini-3")) {
+          console.warn(
+            `[Cerberus FinSec CISO] [Fallback] Gemini 3 ${isAuthError ? "auth error" : "404"} → trying gemini-2.5-flash`
+          );
           try {
             const fbStart = Date.now();
-            const fbResult = await ai.models.generateContent({
+            // Create a regional fallback instance (us-central1) —
+            // the primary "global" endpoint may be the root cause, not just the model name
+            const regionalAi = new GoogleGenAI({
+              vertexai: true,
+              project: this.projectId,
+              location: "us-central1",
+            });
+            const fbResult = await regionalAi.models.generateContent({
               model: "gemini-2.5-flash",
               contents: [{ role: "user", parts: [{ text: userMessage }] }],
               config: {

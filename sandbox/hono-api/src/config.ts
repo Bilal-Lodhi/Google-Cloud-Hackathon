@@ -20,6 +20,44 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ═══════════════════════════════════════════════════════════════════
+// ADC Pre-Warming — eliminates cold-start metadata server race
+// ═══════════════════════════════════════════════════════════════════
+//
+// On Cloud Run, the first request after container boot can race
+// against the GCP metadata server's IAM token endpoint. Pre-fetching
+// the access token during startup ensures the handshake completes
+// before any traffic arrives.
+
+let _googleAuth: typeof import("google-auth-library").GoogleAuth | null = null;
+
+async function loadGoogleAuth() {
+  if (_googleAuth) return _googleAuth;
+  const ga = await import("google-auth-library");
+  _googleAuth = ga.GoogleAuth;
+  return _googleAuth;
+}
+
+export async function warmUpADC(): Promise<void> {
+  try {
+    const GoogleAuth = await loadGoogleAuth();
+    const auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    });
+    const token = await auth.getAccessToken();
+    if (token) {
+      console.log("[config] ADC token pre-warmed — cold start race avoided");
+    } else {
+      console.warn("[config] ADC warm-up returned empty token — will rely on request-time retries");
+    }
+  } catch (err) {
+    console.warn(
+      "[config] ADC warm-up failed — will rely on request-time retries:",
+      (err as Error).message
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Application Default Credentials (ADC) Auto-Discovery
 // ═══════════════════════════════════════════════════════════════════
 //

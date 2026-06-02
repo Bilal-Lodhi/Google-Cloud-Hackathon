@@ -26,11 +26,16 @@ import { generateRouter } from "./routes/generate.js";
 import { guardianRouter } from "./routes/guardian.js";
 import { reviewRouter } from "./routes/review.js";
 import { identityRouter } from "./routes/identity.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, warmUpADC } from "./config.js";
 
 // ─── Configuration ─────────────────────────────────────────────────
 
 const config = loadConfig();
+
+// ─── ADC Pre-Warming ───────────────────────────────────────────────
+// Eliminates the GCP metadata server cold-start race condition.
+
+await warmUpADC();
 
 // ─── Application ───────────────────────────────────────────────────
 
@@ -118,12 +123,12 @@ const isMainModule = process.argv[1]?.endsWith("index.js") ||
 if (isMainModule) {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║  🔒 Cerberus FinSec — Insider Threat & Data Exfiltration   ║
-║  Guardian v1.0.0 | Google Cloud Financial Services Track    ║
-║  Gemini 3 Flash Preview | MongoDB Atlas                     ║
-║─────────────────────────────────────────────────────────────║
-║  Health:  http://localhost:${config.port}/health                   ║
-║  API v1:  http://localhost:${config.port}/api/v1/                  ║
+║  🔒 Cerberus FinSec — Insider Threat & Data Exfiltration    ║
+║  Guardian v1.0.0 | Google Cloud Financial Services Track     ║
+║  Gemini 3 Flash Preview | MongoDB Atlas                      ║
+║──────────────────────────────────────────────────────────────║
+║  Health:  http://localhost:${config.port}/health             ║
+║  API v1:  http://localhost:${config.port}/api/v1/            ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 
