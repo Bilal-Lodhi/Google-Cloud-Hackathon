@@ -1,34 +1,34 @@
-# 🦍 Cerberus AI — Multi-Agent Assessment Ecosystem
+# 🔒 Cerberus FinSec — Insider Threat & Data Exfiltration Guardian
 
-**Google Cloud Rapid Agent Hackathon 2026** — *MongoDB Partner Track*
+**Google Cloud Rapid Agent Hackathon 2026** — *Google Cloud Financial Services Track*
 
-Cerberus AI replaces legacy manual assessment platforms with a fully autonomous,
-Google Cloud-native multi-agent evaluation engine. Built on **Google Cloud Agent Builder**
+Cerberus FinSec replaces legacy financial compliance audit platforms with a fully autonomous,
+Google Cloud-native insider threat detection engine. Built on **Google Cloud Agent Builder**
 with **Hono** as the API runtime layer, **TypeScript**, **Gemini 3 Flash**, and
-**Model Context Protocol (MCP)** for the MongoDB track.
+**Model Context Protocol (MCP)** for the Financial Services track with MongoDB Atlas grounding.
 
 ---
 
-## 🔗 How Cerberus Uses Google Cloud Agent Builder
+## 🔗 How Cerberus FinSec Uses Google Cloud Agent Builder
 
-Cerberus AI runs on **Google Cloud Agent Builder** as its orchestration
+Cerberus FinSec runs on **Google Cloud Agent Builder** as its orchestration
 platform. The Hono API layer serves as the **hosting runtime for Agent Builder
-webhook extensions** — each agent endpoint (`/generate`, `/guardian/ingest`)
-acts as an Agent Builder tool target. The flow works as follows:
+webhook extensions** — each agent endpoint (`/generate`, `/guardian/ingest`,
+`/guardian/deploy`) acts as an Agent Builder tool target. The flow works as follows:
 
-1. **Agent Builder manages orchestration**: Assessment generation requests
+1. **Agent Builder manages orchestration**: Compliance matrix generation requests
    are routed through Agent Builder's conversation engine, which handles
    multi-turn state management and context threading.
 2. **Hono acts as the tool-execution runtime**: When Agent Builder invokes a
-   tool (e.g., `generate_test_suite`), the webhook hits the corresponding
+   tool (e.g., `generate_compliance_matrix`), the webhook hits the corresponding
    Hono endpoint, which calls Gemini 3 Flash via the `@google/genai` Vertex AI
    SDK (authenticated with Application Default Credentials) and returns
    structured JSON output. Exponential backoff with 3 retries ensures
-   reliable large-suite generation.
-3. **MCP Server provides the grounding layer**: All session data, micro-events,
-   and suspicion reports are persisted to MongoDB Atlas through the Model
-   Context Protocol server, which Agent Builder can query for conversational
-   context.
+   reliable large-matrix generation.
+3. **MCP Server provides the grounding layer**: All session data, employee
+   telemetry, and risk assessment payloads are persisted to MongoDB Atlas through
+   the Model Context Protocol server, which Agent Builder can query for
+   conversational context.
 4. **Gemini 3 Flash handles inference**: All model inference runs on the
    mandated `gemini-3-flash-preview` model through Google Cloud's Vertex AI
    SDK (`@google/genai` with `vertexai: true`) with ADC authentication.
@@ -43,12 +43,12 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         FLUTTER REVIEW PANEL                            │
+│                      FLUTTER COMPLIANCE DASHBOARD                       │
 │  ┌──────────────────────┐  ┌─────────────────────────────────────────┐ │
-│  │  Code Viewer          │  │  Security Timeline + Suspicion Gauge    │ │
+│  │  Terminal Workspace   │  │  Security Timeline + Risk Gauge         │ │
 │  │  (Left Panel)         │  │  (Right Panel)                          │ │
-│  │  - Syntax highlighting│  │  - SSE-powered live updates             │ │
-│  │  - Copy-to-clipboard  │  │  - Color-coded severity indicators      │ │
+│  │  - Live code monitor  │  │  - SSE-powered live updates             │ │
+│  │  - Copy detection      │  │  - Color-coded risk severity           │ │
 │  └──────────────────────┘  │  - Expandable behavioral flags           │ │
 │                             └─────────────────────────────────────────┘ │
 └────────────────────────────────┬────────────────────────────────────────┘
@@ -58,39 +58,41 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │                     HONO API LAYER (Cloud Run)                          │
 │  ┌─────────────────┐ ┌──────────────────┐ ┌────────────────────────┐   │
 │  │ POST /generate  │ │ POST /guardian   │ │ GET /sessions          │   │
-│  │  Test Suite Gen │ │  /ingest         │ │ GET /sessions/:id      │   │
-│  │                 │ │                  │ │      /review           │   │
+│  │  Compliance      │ │  /ingest         │ │ GET /sessions/:id      │   │
+│  │  Matrix Gen      │ │ POST /guardian   │ │                        │   │
+│  │                  │ │  /deploy         │ │                        │   │
 │  └───────┬─────────┘ └───────┬──────────┘ └───────────┬────────────┘   │
 │          │                   │                        │                │
 │          ▼                   ▼                        ▼                │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                   GEMINI AGENT PIPELINE                           │  │
+│  │                  GEMINI AGENT PIPELINE                            │  │
 │  │  ┌────────────────────┐  ┌──────────────────────────────────┐    │  │
-│  │  │ Orchestrator Agent  │  │ Intent Guardian Agent            │    │  │
-│  │  │ (gemini-3-flash)    │  │ (gemini-3-flash reasoning)       │    │  │
-│  │  │                    │  │                                  │    │  │
-│  │  │ • Prompt → Test    │  │ • Paste detection                │    │  │
-│  │  │ • JSON contract    │  │ • Code-shift analysis            │    │  │
-│  │  │ • Competency matrix│  │ • Token injection patterns       │    │  │
-│  │  │ • Hidden test cases│  │ • Semantic similarity scoring    │    │  │
-│  │  │ • 90s timeout      │  │ • Auto-creates sessions          │    │  │
+│  │  │ CISO Orchestrator   │  │ Insider Threat Guardian           │    │  │
+│  │  │ (gemini-3-flash)    │  │ (gemini-3-flash reasoning)        │    │  │
+│  │  │                    │  │                                   │    │  │
+│  │  │ • Prompt → Matrix  │  │ • Paste trigger detection         │    │  │
+│  │  │ • JSON contract    │  │ • Keystroke anomaly analysis      │    │  │
+│  │  │ • Regulatory map   │  │ • Tab switch / window blur        │    │  │
+│  │  │ • Penetration      │  │ • Code similarity scoring         │    │  │
+│  │  │   scenarios        │  │ • Auto-creates audit sessions     │    │  │
+│  │  │ • 90s timeout      │  │                                   │    │  │
 │  │  └────────────────────┘  └──────────────────────────────────┘    │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬────────────────────────────────────────┘
                                  │ MCP (Model Context Protocol)
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                  MCP SERVER — MONGODB TRACK                              │
+│               MCP SERVER — MONGODB ATLAS GROUNDING                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
-│  │ Sessions     │  │ Micro-Events  │  │ Suspicion     │                  │
-│  │ Collection   │  │ Collection   │  │ Reports      │                  │
+│  │ Sessions     │  │ Micro-Events  │  │ Risk Reports  │                  │
+│  │ Collection   │  │ Collection   │  │ Collection   │                  │
 │  └──────────────┘  └──────────────┘  └──────────────┘                  │
 │                                                                         │
-│  Exposes 11 MCP tools via HTTP adapter:                                 │
-│  • store_test_suite / get_test_suite                                   │
-│  • create_session / update_session_code                                │
-│  • append_micro_event / ingest_micro_events                            │
-│  • store_suspicion_report                                              │
+│  Exposes 9 MCP tools via HTTP adapter:                                  │
+│  • store_test_suite / get_test_suite (compliance matrices)              │
+│  • create_session (audited terminal session)                            │
+│  • ingest_micro_events (batch behavioral telemetry)                     │
+│  • store_suspicion_report (risk assessment)                             │
 │  • get_session_review / get_candidate_report / list_sessions            │
 │  • health_check                                                        │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -102,46 +104,49 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 
 ```
 Google-Cloud-Hackathon/
-├── .github/
-│   └── HACKATHON_RULES.md          # Official compliance directive
 ├── .gitignore                       # Blocks **/.env and node_modules
 ├── LICENSE                          # Apache 2.0 (OSI-approved)
+├── package.json                     # npm workspace: hono-api + mcp-server
 └── sandbox/
     ├── README.md                    # ← THIS FILE
-    ├── package.json                 # npm workspace: hono-api + mcp-server
-    ├── Dockerfile                   # Multi-stage Cloud Run container
-    ├── entrypoint.sh                # Concurrent Hono + MCP launcher
-    ├── start-services.js            # Node.js dev process manager (production builds)
-    ├── dev-services.js              # Auto-reload dev mode (tsx watch)
-    ├── hono-api/                    # Hono TypeScript API (Cloud Run)
+    ├── CURL_COMMANDS.md            # Smoke-test curl commands
+    ├── package.json                # Workspace scripts
+    ├── Dockerfile                  # Multi-stage Cloud Run container
+    ├── entrypoint.sh               # Concurrent Hono + MCP launcher
+    ├── start-services.js           # Node.js dev process manager (production builds)
+    ├── dev-services.js             # Auto-reload dev mode (tsx watch)
+    ├── test-all-10.ps1             # Full integration test suite (PowerShell)
+    ├── test-telemetry.ps1          # Telemetry & observability smoke tests
+    ├── hono-api/                   # Hono TypeScript API (Cloud Run)
     │   ├── package.json
     │   ├── tsconfig.json
-    │   ├── .env.example             # Copy to .env and configure
+    │   ├── .env.example            # Copy to .env and configure
     │   └── src/
-    │       ├── index.ts             # Entry point, Hono app bootstrap
-    │       ├── config.ts            # Environment config loader
-    │       ├── types.ts             # Shared TypeScript contracts
+    │       ├── index.ts            # Entry point, Hono app bootstrap
+    │       ├── config.ts           # Environment config loader
+    │       ├── types.ts            # Shared TypeScript contracts (FinSec domain)
     │       ├── agents/
     │       │   └── gemini-client.ts # Vertex AI SDK Gemini 3 Flash client (ADC)
     │       └── routes/
-    │           ├── health.ts        # GET /health
-    │           ├── generate.ts      # POST /api/v1/generate
-    │           ├── guardian.ts      # POST /api/v1/guardian/ingest
-    │           ├── review.ts        # GET /api/v1/sessions/:id/review
-    │           └── identity.ts      # POST /api/v1/identity/set · GET /api/v1/identity/me
-    ├── mcp-server/                  # MCP Server (MongoDB Partner Track)
+    │           ├── health.ts       # GET /health
+    │           ├── generate.ts     # POST /api/v1/generate (compliance matrices)
+    │           ├── guardian.ts     # POST /api/v1/guardian/ingest · POST /api/v1/guardian/deploy
+    │           ├── review.ts       # GET /api/v1/sessions · GET /api/v1/sessions/:id
+    │           └── identity.ts     # POST /api/v1/identity/set · GET /api/v1/identity/me
+    ├── mcp-server/                 # MCP Server (MongoDB Atlas Grounding)
     │   ├── package.json
     │   ├── tsconfig.json
-    │   ├── .env.example             # Copy to .env and configure
+    │   ├── .env.example            # Copy to .env and configure
     │   └── src/
-    │       ├── server.ts            # StdioServerTransport MCP server
+    │       ├── server.ts           # StdioServerTransport MCP server
     │       ├── mongo-client.ts      # MongoDB native driver + MongoStore
-    │       └── http-adapter.ts      # HTTP wrapper for Cloud Run sidecar
-    └── frontend/                    # Flutter Review Panel
+    │       └── http-adapter.ts     # HTTP wrapper for Cloud Run sidecar
+    └── frontend/                   # Flutter Compliance Dashboard
+        ├── README.md               # Frontend-specific docs
         ├── pubspec.yaml
         └── lib/
-            ├── main.dart            # App entry point
-            ├── app.dart             # MaterialApp + routing
+            ├── main.dart           # App entry point
+            ├── app.dart            # MaterialApp + routing
             ├── models/
             │   ├── health_model.dart
             │   ├── generate_model.dart
@@ -162,6 +167,7 @@ Google-Cloud-Hackathon/
             ├── theme/
             │   └── app_theme.dart
             └── widgets/
+                ├── generate_panel.dart     # Compliance Matrix bottom sheet
                 ├── code_workspace_panel.dart
                 └── security_metrics_panel.dart
 ```
@@ -176,7 +182,7 @@ Google-Cloud-Hackathon/
 - **Google Cloud Project** with Vertex AI API enabled (project ID: `webscraping-464710`)
 - **Application Default Credentials** configured (`gcloud auth application-default login`)
 - **MongoDB Atlas** connection string (set as `MONGODB_URI`)
-- **Flutter SDK** ≥ 3.24 (for the review panel)
+- **Flutter SDK** ≥ 3.24 (for the compliance dashboard)
 
 ### 1. Install Dependencies
 
@@ -200,12 +206,12 @@ Key configuration options in `.env.example`:
 | `GCP_PROJECT_ID` | `webscraping-464710` | Google Cloud project ID for Vertex AI |
 | `GCP_LOCATION` | `global` | Vertex AI endpoint — use `global` for Gemini 3 Flash Preview |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Model to use for all inference |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (prevent truncation on large test suites) |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (prevent truncation on large matrices) |
 | `GEMINI_TEMPERATURE` | `0.2` | Determinism control (lower = more deterministic) |
 | `MCP_SERVER_ENDPOINT` | `http://localhost:3001` | MCP server URL |
 | `SESSION_TTL_SECONDS` | `7200` | Session expiry (2 hours) |
 | `MAX_PASTE_EVENTS` | `5` | Max paste events before auto-flagging |
-| `PLAGIARISM_THRESHOLD` | `0.75` | Semantic similarity threshold |
+| `DATA_EXFILTRATION_THRESHOLD` | `0.75` | Semantic similarity threshold for exfiltration detection |
 
 ### 3. Build & Run Locally
 
@@ -228,7 +234,7 @@ node sandbox/dev-services.js
 
 ```bash
 gcloud builds submit --config=cloudbuild.yaml
-gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
+gcloud run deploy cerberus-finsec-api --image=gcr.io/$PROJECT_ID/cerberus-api \
   --platform=managed --region=us-central1 --allow-unauthenticated
 ```
 
@@ -236,31 +242,33 @@ gcloud run deploy cerberus-api --image=gcr.io/$PROJECT_ID/cerberus-api \
 
 ## 🔧 API Endpoints
 
-### `POST /api/v1/generate` — Test Suite Generator
+### `POST /api/v1/generate` — Compliance Matrix Generator
 
-Accepts a text prompt and returns a structured JSON test suite via the
-Orchestrator Agent running on Gemini 3 Flash (`gemini-3-flash-preview`).
-Authenticated via Application Default Credentials with 3-retry exponential
-backoff for reliable large-suite generation. Supports explicit role targeting
-and problem count tuning.
+Accepts a text prompt and returns a structured JSON compliance matrix via the
+CISO Orchestrator Agent running on Gemini 3 Flash (`gemini-3-flash-preview`).
+Generates target system profiles, regulatory mandate maps, threat vectors, and
+penetration scenarios. Authenticated via Application Default Credentials with
+3-retry exponential backoff. Supports explicit system targeting and severity
+distribution tuning.
 
 **Request:**
 ```json
 {
-  "prompt": "Generate a senior React developer assessment covering state management...",
-  "roleContext": "senior engineer",
+  "prompt": "Generate a compliance audit matrix for a high-frequency trading desk covering FINRA and SOX mandates...",
+  "roleContext": "core-trading-ledger",
   "problemCount": 5
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `prompt` | `string` | ✅ Yes | — | Natural-language description of the assessment domain |
-| `roleContext` | `string` | No | `"mid-level developer"` | Target seniority level for competency calibration |
-| `problemCount` | `number` | No | `5` | Number of coding problems to generate (1–10) |
+| `prompt` | `string` | ✅ Yes | — | Natural-language description of the compliance domain |
+| `roleContext` | `string` | No | `"mid-level developer"` | Target system context (e.g. "core-trading-ledger", "swift-gateway") |
+| `problemCount` | `number` | No | `5` | Number of threat vectors to generate (1–10) |
 
-**Response:** Complete `GeneratedTestSuite` object with metadata, roles,
-competencies, problems, and hidden testing matrices. See `types.ts` for full schema.
+**Response:** Complete `GeneratedComplianceMatrix` object with `MatrixMetadata`,
+`TargetSystem[]`, `RegulatoryMandate[]`, `ThreatVector[]`, and `PenetrationScenario[]`.
+See `types.ts` for full schema.
 
 #### Gemini-First Semantic Intake Classifier
 
@@ -269,8 +277,8 @@ Every prompt is routed through a two-stage Gemini classifier
 
 - **Stage 1 — Meaningfulness**: Gemini determines if the input is coherent
   language (rejecting gibberish, single words, greetings, keyboard mashing)
-- **Stage 2 — Assessment Relevance**: Validates the input describes a test/
-  assessment generation request, detecting the domain and assessment type
+- **Stage 2 — Assessment Relevance**: Validates the input describes a compliance
+  audit/threat matrix generation request, detecting the domain and audit type
 - Returns a verdict with `confidence` score, `detectedDomain`, and
   `detectedAssessmentType`
 - Robust JSON response parsing with a three-tier fallback chain: direct parse
@@ -280,7 +288,7 @@ Every prompt is routed through a two-stage Gemini classifier
 
 #### Cancel & Resume Generation
 
-Long-running test suite generation can be cancelled mid-flight. A **Cancel Generation**
+Long-running compliance matrix generation can be cancelled mid-flight. A **Cancel Generation**
 button appears in the Flutter UI while Gemini is generating. Tapping it shows a
 confirmation dialog; on confirmation, the client sends a cancellation signal via
 `POST /api/v1/generate/cancel` with the `X-Generation-Request-Id` header.
@@ -291,59 +299,129 @@ confirmation dialog; on confirmation, the client sends a cancellation signal via
   response. The UI transitions to a cancelled state with a **Resume Generation**
   button.
 - **Resume flow**: Tapping Resume re-initiates generation with the exact same
-  prompt, role context, and problem count — but under a fresh request ID. The
-  client increments an internal `_generationSeq` counter to prevent stale
+  prompt, system context, and threat vector count — but under a fresh request ID.
+  The client increments an internal `_generationSeq` counter to prevent stale
   cancelled responses from clobbering the new request's loading state.
 - **Request correlation**: A UUID v4 `X-Generation-Request-Id` header is
   generated client-side before the API call and sent with the request. The
   server uses this ID to register the abort controller, ensuring the cancel
   button targets the correct in-flight Gemini call.
 
-### `POST /api/v1/guardian/ingest` — Intent & Plagiarism Guardian
+#### Deploy Session (`POST /api/v1/guardian/deploy`)
 
-Streams micro-events to Gemini for real-time integrity analysis.
-Auto-creates a session if the referenced `sessionId` does not exist.
+Once a compliance matrix is generated, it can be deployed as an active monitoring
+session via the deploy endpoint. This creates an `ActiveSession` in the in-memory
+registry and persists to MongoDB Atlas via the MCP sidecar.
 
 **Request:**
 ```json
 {
-  "sessionId": "sess-abc123",
-  "candidateId": "cand-xyz789",
-  "currentCode": "...",
-  "event": {
-    "type": "paste",
-    "timestamp": "2026-05-26T10:00:00Z",
-    "payload": { ... }
-  }
+  "employeeUid": "op-trader-001",
+  "sessionId": "active-ledger-audit",
+  "matrixId": "matrix-abc123",
+  "targetSystem": "Core Trading Ledger"
 }
 ```
 
-**Response:** `GuardianAnalysisResult` with `overallSuspicionScore`, `verdict`,
-and detailed factor breakdown.
+**Response:**
+```json
+{
+  "success": true,
+  "sessionId": "active-ledger-audit",
+  "employeeId": "op-trader-001",
+  "deployedAt": "2026-06-02T12:00:00.000Z",
+  "mongoDocumentId": "...",
+  "mcpCorrelationId": "..."
+}
+```
 
-### `GET /api/v1/sessions` — List All Sessions (Flutter Drawer)
+### `POST /api/v1/guardian/ingest` — Insider Threat & Data Exfiltration Guardian
 
-Returns a summary list of all candidate assessment sessions. Used by the
-Flutter review panel drawer to populate the session list.
+Ingests batched behavioral micro-events and runs Gemini-powered insider threat
+analysis using keystroke anomaly detection, paste content similarity scoring,
+and behavioral pattern matching. Auto-creates a session if the referenced
+`sessionId` does not exist. Returns an `anomalyRiskIndex` (0-100) and triggers
+`alertTriggered: true` when the score exceeds 50.
+
+**Request:**
+```json
+{
+  "events": [
+    {
+      "eventId": "evt-001",
+      "sessionId": "sess-abc123",
+      "employeeId": "emp-xyz789",
+      "auditId": "audit-001",
+      "vectorId": "vec-001",
+      "eventType": "PASTE_TRIGGER",
+      "timestamp": "2026-06-02T10:00:00.000Z",
+      "payload": {
+        "pasteContent": "function exfiltrateData() { ... }"
+      },
+      "clientMetadata": {
+        "userAgent": "Mozilla/5.0",
+        "ipAddress": "127.0.0.1",
+        "screenResolution": "1920x1080",
+        "platform": "web",
+        "language": "en-US"
+      }
+    }
+  ]
+}
+```
+
+**Response:** Returns `IngestMicroEventResponse` with `processedCount`,
+`riskPayload` (a `RiskAssessmentPayload` containing `overallRiskScore`,
+`flags`, `behavioralAnomalies`, and `exfiltrationReport`),
+`alertTriggered`, and `anomalyRiskIndex`.
+
+Valid `eventType` values: `KEYSTROKE`, `PASTE_TRIGGER`, `CODE_DELTA`,
+`TAB_SWITCH`, `WINDOW_BLUR`, `COPY_ATTEMPT`, `DEVELOPER_TOOLS_OPEN`,
+`FULLSCREEN_EXIT`, `EXTERNAL_APP_SWITCH`, `SUBMIT`, `EDIT`, `PASTE`.
+
+### `GET /api/v1/guardian/sessions/:sessionId` — Live Session Risk
+
+Returns the current in-memory session state from the Guardian store with live
+risk metrics (event counts, paste/tab-switch/fullscreen-exit/copy-attempt
+counts, current code, and latest risk assessment payload).
+
+### `GET /api/v1/sessions` — List All Sessions (Dashboard Drawer)
+
+Returns an enriched summary list of all sessions with event counts,
+paste/tab-switch metrics, suspicion scores, and peak risk scores. Used by the
+Flutter compliance dashboard drawer to populate the session list.
 
 ```json
-// Response
 {
   "success": true,
   "data": [
     {
       "sessionId": "ses-clean-001",
-      "candidateId": "cand-xyz",
-      "lastEventTimestamp": "2026-05-28T23:40:00.000Z",
-      "eventCount": 12
+      "employeeId": "emp-xyz",
+      "candidateId": "emp-xyz",
+      "auditId": "audit-001",
+      "assessmentId": "audit-001",
+      "status": "active",
+      "eventCount": 12,
+      "pasteCount": 2,
+      "tabSwitchCount": 3,
+      "suspicionScore": 45,
+      "peakRiskScore": 45,
+      "alertTriggered": false,
+      "lastEventTimestamp": "2026-06-02T23:40:00.000Z",
+      "targetSystem": "Core Trading Ledger",
+      "createdAt": "2026-06-02T12:00:00.000Z",
+      "startedAt": "2026-06-02T12:00:00.000Z"
     }
   ]
-}```
+}
+```
 
-### `GET /api/v1/sessions/:sessionId/review` — Review Log
+### `GET /api/v1/sessions/:sessionId` — Audit Review Log
 
-Returns the full session review including submitted code, timeline, and
-suspicion reports.
+Returns the full session review including terminal workspace content, timeline
+(built from micro-events with severity labeling), and risk assessment reports
+from MongoDB via the MCP sidecar.
 
 ### `GET /health` — Health Check
 
@@ -351,7 +429,7 @@ Returns `{ "status": "ok", "timestamp": "..." }`
 
 ### 🔐 Identity Endpoints (Personalization Layer)
 
-A lightweight, password-free identity system for persona-based evaluation
+A lightweight, password-free identity system for persona-based compliance
 demos. Identity is ephemeral — stored in-memory, reset on server restart.
 Production deployments integrate with Google Cloud Identity Platform.
 
@@ -364,8 +442,8 @@ automatically attached to all subsequent API calls via `X-Session-Token` header.
 ```json
 {
   "displayName": "Alice Chen",
-  "candidateId": "CAND-001",
-  "role": "Senior Backend Engineer (optional)"
+  "employeeId": "EMP-001",
+  "role": "Senior Trading Desk Operator"
 }
 ```
 
@@ -373,12 +451,12 @@ automatically attached to all subsequent API calls via `X-Session-Token` header.
 ```json
 {
   "success": true,
-  "data": {
+  "identity": {
     "displayName": "Alice Chen",
-    "candidateId": "CAND-001",
-    "role": "Senior Backend Engineer",
-    "sessionToken": "550e8400-e29b-41d4-a716-446655440000"
-  }
+    "employeeId": "EMP-001",
+    "role": "Senior Trading Desk Operator"
+  },
+  "sessionToken": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -388,46 +466,55 @@ Returns the currently registered identity for the session.
 
 ---
 
-## 🗄️ MongoDB MCP Tools — 11 Tools via HTTP Adapter
+## 🗄️ MongoDB MCP Tools — 9 Tools via HTTP Adapter
 
-The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **11 tools**
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **9 tools**
 via `POST /tools/:toolName`. All database operations route through the
 `MongoStore` class (`mongo-client.ts`) using the MongoDB Node.js native driver
 with Atlas connection pooling.
 
 ### Tool 1: `store_test_suite` / `get_test_suite`
-**Purpose:** Persist and retrieve generated assessment suite documents.
-**Store parameters:** `{ suite: GeneratedTestSuite }`
+**Purpose:** Persist and retrieve generated compliance matrix documents.
+**Store parameters:** `{ suite: GeneratedComplianceMatrix }`
 **Get parameters:** `{ suiteId: string }`
 
-### Tool 2: `create_session` / `update_session_code`
-**Purpose:** Initialize a candidate assessment session and update submitted code.
-**Create parameters:** `{ candidateId, testSuiteId, metadata }`
-**Update parameters:** `{ sessionId, code }`
+### Tool 2: `create_session`
+**Purpose:** Initialize an audited employee monitoring session in MongoDB.
+Persist session metadata to Atlas and return the generated document ID.
+**Parameters:** `{ sessionId, candidateId, assessmentId, problemId?, ...extraMeta }`
+**Returns:** `{ success: true, mongoDocumentId: string }`
 
-### Tool 3: `append_micro_event` / `ingest_micro_events`
-**Purpose:** Ingest individual or batched micro-events (paste triggers,
-structural code shifts, token injections) into the session timeline.
-**Parameters (batch):** `{ events: MicroEvent[] }`
+### Tool 3: `ingest_micro_events`
+**Purpose:** Batch ingest behavioral micro-events (keystrokes, paste triggers,
+tab switches, window blur, copy attempts, fullscreen exits, etc.) from the
+assessment frontend into the session timeline.
+**Parameters:** `{ events: MicroEvent[] }`
 **Returns:** `{ success: true, processedCount: number }`
 
 ### Tool 4: `store_suspicion_report`
-**Purpose:** Store a Gemini-generated suspicion analysis against a session.
-**Parameters:** `{ report: SuspicionReport }`
+**Purpose:** Persist a Gemini-generated risk assessment (suspicion report)
+against a session after the Guardian completes its real-time analysis.
+**Parameters:** `{ report: RiskAssessmentPayload }`
 **Returns:** `{ success: true, mongoDocumentId: string }`
 
-### Tool 5: `get_session_review` / `get_candidate_report`
-**Purpose:** Aggregate the full review log — session metadata, code workspace,
-micro-event timeline, and suspicion reports — for the Flutter review panel.
-**Parameters:** `{ sessionId }` or `{ candidateId }`
-**Returns:** `{ session, events[], suspicionReports[] }`
+### Tool 5: `get_session_review`
+**Purpose:** Fetch the complete analytical review data for a session including
+all events, suspicion flags, and submitted code from MongoDB.
+**Parameters:** `{ sessionId: string }`
+**Returns:** `{ success, session, events, suspicionReports }`
 
-### Tool 6: `list_sessions`
+### Tool 6: `get_candidate_report`
+**Purpose:** Aggregate all suspicion reports for a specific candidate/employee
+across all sessions.
+**Parameters:** `{ candidateId: string }`
+**Returns:** `{ success: true, reports }`
+
+### Tool 7: `list_sessions`
 **Purpose:** List all sessions with summary fields. Used by the Flutter drawer.
 **Parameters:** none
 **Returns:** `{ success: true, data: SessionSummary[] }`
 
-### Tool 7: `health_check`
+### Tool 8: `health_check`
 **Purpose:** MongoDB connectivity health check with Atlas ping.
 **Returns:** `{ connected: boolean, healthy: boolean, timestamp: string }`
 
@@ -441,29 +528,37 @@ and `test_suites` collections if they don't already exist.
 
 ## 🧠 Agent Design Philosophy
 
-### Orchestrator Agent (Test Generation)
+### CISO Orchestrator Agent (Compliance Matrix Generation)
 
-The Orchestrator transforms unstructured natural-language requirements into
-fully-structured, production-grade assessment JSON. It enforces:
+The Orchestrator transforms unstructured natural-language audit requirements into
+fully-structured, production-grade compliance matrices. It enforces:
 
-- **Role definition**: Maps abstract job titles to concrete skill matrices
-- **Competency mapping**: Weighted sub-scores per competency area
-- **Problem construction**: Each problem includes starter code, test harness,
-  and hidden edge-case tests
-- **Hidden testing matrix**: Anti-cheat measures baked into the evaluation
-  (expected false starts, common misconceptions to flag)
+- **Target system definition**: Maps abstract financial systems to concrete risk profiles
+- **Regulatory mandate mapping**: Weighted sub-scores per compliance area (AML, SOX, GDPR, FINRA)
+- **Threat vector construction**: Each vector includes exploit scenarios, detection
+  rules, and expected remediation steps
+- **Penetration scenario modeling**: Anti-exfiltration measures baked into the
+  evaluation (token injection patterns, transfer interception, privilege escalation)
 
-### Intent Guardian Agent (Security)
+### Insider Threat Guardian Agent (Security)
 
-The Guardian operates as a streaming micro-event processor:
+The Guardian operates as a streaming telemetry event processor:
 
-1. **Paste Detection**: Tracks clipboard injection events in real-time
-2. **Structural Code Shifts**: Compares AST-level similarity between sequential
-   submissions using tree-edit distance
-3. **Token Injection Analysis**: Detects rapid large-block insertions
-   characteristic of AI-generated pastes
-4. **Semantic Similarity**: Uses Gemini embeddings to compare candidate code
-   against canonical AI completions, detecting obfuscated variations
+1. **Paste Trigger Detection**: Intercepts paste events (Ctrl+V) and analyzes pasted
+   content for AI-generated code or external data injection patterns using Gemini's
+   semantic similarity engine against known reference completions.
+2. **Keystroke Anomaly Analysis**: Measures inter-keystroke timing deltas to detect
+   non-human typing patterns (instant paste with minimal deltas, burst pastes, or
+   copy-paste with obfuscated paste masking).
+3. **Tab Switch & Window Blur Monitoring**: Detects external resource lookups and
+   browser/IDE tab switches that may indicate unauthorized consultation of external
+   tools, AI assistants, or data sources during monitored sessions.
+4. **Code Similarity Scoring**: Uses Gemini embeddings to compare employee submitted
+   code against Gemini-generated reference completions, computing semantic similarity
+   scores to flag AI-generated or externally sourced content.
+5. **Composite Risk Scoring**: Combines paste frequency, keystroke timing patterns,
+   tab/window switches, and code similarity metrics into a weighted 0-100 risk index
+   that triggers alerts when exceeding the configurable threshold.
 
 ---
 
@@ -475,16 +570,30 @@ The Guardian operates as a streaming micro-event processor:
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
-| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB track MCP server with 11 registered tools |
+| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 9 registered tools via HTTP adapter |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |
 | **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
 | **MongoDB Indexes** | ✅ PASS | Automatic `ensureIndexes()` on MCP startup + documented manual indexes |
+| **Financial Services Track** | ✅ PASS | Insider threat detection, data exfiltration guardian, compliance matrix generation |
+| **Telemetry & Observability** | ✅ PASS | Enterprise-hardened logging at every pipeline milestone, `test-telemetry.ps1` smoke tests |
 
 ---
 
+## ⚡ Telemetry & Testing
+
+Two PowerShell test suites validate the full pipeline:
+
+### `test-telemetry.ps1`
+Deep observability smoke tests — validates structured JSON error responses (400),
+MCP timeout isolation, in-memory session fallback, and health endpoint connectivity.
+
+### `test-all-10.ps1`  
+Full integration test suite — exercises all 10 core pipeline scenarios including
+compliance matrix generation, micro-event ingestion, guardian analysis, session
+deployment, identity registration, and review endpoint aggregation.
 
 ---
 
-Built with ❤️ for the Google Cloud Rapid Agent Hackathon 2026.
+Built with ❤️ for the Google Cloud Rapid Agent Hackathon 2026 — Financial Services Track.
