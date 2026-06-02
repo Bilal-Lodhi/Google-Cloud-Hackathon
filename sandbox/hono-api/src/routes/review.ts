@@ -16,7 +16,7 @@
  */
 
 import { Hono } from "hono";
-import type { SessionReviewResponse, SuspicionPayload } from "../types.js";
+import type { SessionReviewResponse, RiskAssessmentPayload } from "../types.js";
 
 const reviewRouter = new Hono();
 
@@ -186,9 +186,17 @@ reviewRouter.get("/", async (c) => {
           }
         }
 
+        // ── FinSec rebranded enriched return payload ──────────────────
+        // Emits both legacy keys (candidateId, assessmentId) for backward
+        // compat AND FinSec keys (employeeId, auditId, targetSystem,
+        // alertTriggered, peakRiskScore) so the Flutter left drawer
+        // SessionSummary.fromJson & ReviewRecord.fromJson parse without
+        // throwing "Audit record data missing".
         return {
           sessionId: s.sessionId,
+          employeeId: s.candidateId ?? "unknown-operator",
           candidateId: s.candidateId,
+          auditId: s.assessmentId,
           assessmentId: s.assessmentId,
           status: s.status as SessionReviewResponse["status"],
           eventCount,
@@ -196,6 +204,11 @@ reviewRouter.get("/", async (c) => {
           tabSwitchCount,
           suspicionScore,
           lastEventTimestamp,
+          targetSystem: "Core Trading Ledger",
+          alertTriggered: suspicionScore >= 75,
+          peakRiskScore: suspicionScore,
+          createdAt: s.createdAt ?? new Date().toISOString(),
+          startedAt: s.createdAt ?? new Date().toISOString(),
         };
       })
     );
@@ -331,6 +344,24 @@ reviewRouter.get("/:sessionId", async (c) => {
           detail = "Final answer submitted";
           severity = "info";
           break;
+        case "EDIT":
+          label = "Code Edit";
+          detail = `Snapshot: ${(event.payload?.newText as string)?.length ?? 0} chars`;
+          severity = "info";
+          break;
+        case "PASTE":
+          label = "Paste Detected";
+          detail = `Inserted ${event.payload?.changeLength ?? "?"} chars`;
+          severity = "critical";
+          break;
+        default:
+          // Catch CODE_EDIT / unknown types gracefully
+          label = event.eventType
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          detail = JSON.stringify(event.payload ?? {});
+          severity = "info";
+          break;
       }
 
       return {
@@ -344,7 +375,7 @@ reviewRouter.get("/:sessionId", async (c) => {
 
     // Compute status
     let status: SessionReviewResponse["status"] =
-      (session.status as SessionReviewResponse["status"]) ?? "in_progress";
+      (session.status as SessionReviewResponse["status"]) ?? "active";
     const hasSubmission = events.some((e) => e.eventType === "SUBMIT");
     const lastReport =
       reports.length > 0 ? reports[reports.length - 1] : null;
@@ -354,22 +385,22 @@ reviewRouter.get("/:sessionId", async (c) => {
 
     if (hasSubmission && isFlagged) {
       status = "flagged";
-    } else if (hasSubmission) {
-      status = "submitted";
     } else if (isFlagged) {
       status = "flagged";
+    } else if (hasSubmission) {
+      status = "investigating";
     }
 
-    // Map suspicion reports to SuspicionPayload type
-    const suspicionSummary: SuspicionPayload[] = reports.map((r) => {
+    // Map risk reports to RiskAssessmentPayload type
+    const riskSummary: RiskAssessmentPayload[] = reports.map((r) => {
       const rawFlags = (r["flags"] as string[]) ?? [];
       return {
-        suspicionId:
+        riskAssessmentId:
           (r["suspicionId"] as string) ?? crypto.randomUUID(),
         sessionId: (r["sessionId"] as string) ?? sessionId,
-        candidateId: (r["candidateId"] as string) ?? session.candidateId,
-        assessmentId: (r["assessmentId"] as string) ?? session.assessmentId,
-        overallScore: (r["overallScore"] as number) ?? 0,
+        employeeId: (r["candidateId"] as string) ?? session.candidateId,
+        auditId: (r["assessmentId"] as string) ?? session.assessmentId,
+        overallRiskScore: (r["overallScore"] as number) ?? 0,
         flags: rawFlags.map((f) => ({
           flagType: f,
           severity: "medium" as const,
@@ -379,11 +410,11 @@ reviewRouter.get("/:sessionId", async (c) => {
           timestamp:
             (r["generatedAt"] as string) ?? new Date().toISOString(),
         })),
-        plagiarismReport:
-          (r["plagiarismReport"] as SuspicionPayload["plagiarismReport"]) ??
+        exfiltrationReport:
+          (r["plagiarismReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
           null,
         behavioralAnomalies:
-          (r["behavioralAnomalies"] as SuspicionPayload["behavioralAnomalies"]) ??
+          (r["behavioralAnomalies"] as RiskAssessmentPayload["behavioralAnomalies"]) ??
           [],
         generatedAt:
           (r["generatedAt"] as string) ?? new Date().toISOString(),
@@ -392,13 +423,13 @@ reviewRouter.get("/:sessionId", async (c) => {
 
     const response: SessionReviewResponse = {
       sessionId: session.sessionId,
-      candidateId: session.candidateId,
-      assessmentId: session.assessmentId,
+      employeeId: session.candidateId,
+      auditId: session.assessmentId,
       status,
-      submittedCode: session.submittedCode ?? "",
+      terminalContent: session.submittedCode ?? "",
       timeline,
-      suspicionSummary,
-      finalScore: hasSubmission
+      riskSummary,
+      finalRiskScore: hasSubmission
         ? lastReport
           ? Math.max(0, 100 - ((lastReport["overallScore"] as number) ?? 0))
           : null
@@ -407,7 +438,7 @@ reviewRouter.get("/:sessionId", async (c) => {
 
     console.log(
       `[Review Route] [${requestId}] COMPLETE — status=${status} ` +
-        `events=${timeline.length} suspicions=${suspicionSummary.length} finalScore=${response.finalScore}`
+        `events=${timeline.length} risks=${riskSummary.length} finalRiskScore=${response.finalRiskScore}`
     );
     return c.json({ success: true, data: response });
   } catch (error) {

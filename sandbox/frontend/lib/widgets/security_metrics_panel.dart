@@ -1,24 +1,106 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/review_provider.dart';
+import '../providers/guardian_provider.dart';
 import '../models/guardian_model.dart';
 
-/// ─── Cerberus AI — Right Panel: Security Metrics Timeline ───────────────────
-/// Scrollable ListView rendering timestamped suspicion scores, micro-event
-/// evidence, and timeline entries from the Hono API review endpoint.
+/// ─── Cerberus FinSec — Middle Panel: Real-Time Threat Metrics & SIEM Feed ────
+/// Displays a live Anomaly Risk Index circular gauge (0–100), a scrolling
+/// micro-event timeline stream with color-coded severity badges, and
+/// dimension-level risk breakdown cards. Reacts in real-time to
+/// ingest events dispatched from the employee terminal workspace.
 
-class SecurityMetricsPanel extends StatelessWidget {
+class SecurityMetricsPanel extends StatefulWidget {
   const SecurityMetricsPanel({super.key});
+
+  @override
+  State<SecurityMetricsPanel> createState() => _SecurityMetricsPanelState();
+}
+
+class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToFirstRiskAssessment() {
+    // Scroll to the top of the timeline where live events appear first
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+
+  /// Merged timeline: GuardianProvider live events + ReviewRecord's static timeline
+  List<_TimelineEntry> _buildTimeline(
+    GuardianProvider guardian,
+    ReviewRecord? record,
+  ) {
+    final entries = <_TimelineEntry>[];
+
+    // Live guardian risk assessment payloads
+    for (final payload in guardian.events.reversed) {
+      // Derive a context-aware label from the top flag or risk score
+      final topFlag = payload.flags.isNotEmpty
+          ? payload.flags.first.description
+          : null;
+      final contextLabel =
+          topFlag ??
+          'Risk Score: ${payload.overallRiskScore.toStringAsFixed(1)}';
+      final riskLabel =
+          '$contextLabel (${payload.overallRiskScore.toStringAsFixed(0)})';
+
+      entries.add(
+        _TimelineEntry(
+          timestamp: payload.generatedAt,
+          eventType: 'RISK_ASSESSMENT',
+          label: riskLabel,
+          detail: payload.auditReasoning,
+          severity: payload.overallRiskScore >= 75
+              ? 'critical'
+              : payload.overallRiskScore >= 45
+              ? 'warning'
+              : 'info',
+        ),
+      );
+    }
+
+    if (record != null) {
+      for (final tl in record.timeline.reversed) {
+        final ts = _parseTimelineTimestamp(tl['timestamp']);
+        entries.add(
+          _TimelineEntry(
+            timestamp: ts,
+            eventType: tl['eventType'] as String? ?? 'unknown',
+            label: tl['label'] as String? ?? '',
+            detail: tl['detail'] as String? ?? '',
+            severity: tl['severity'] as String? ?? 'info',
+          ),
+        );
+      }
+    }
+
+    return entries;
+  }
 
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewProvider>().selected;
+    final guardian = context.watch<GuardianProvider>();
 
     if (review == null) {
       return _buildEmptyState(context);
     }
 
-    return _buildMetricsView(context, review);
+    return _buildMetricsView(context, review, guardian);
   }
 
   Widget _buildEmptyState(BuildContext context) {
@@ -41,7 +123,7 @@ class SecurityMetricsPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Select a review record to view the timeline',
+            'Select an active audit session to view the live telemetry',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.outline.withValues(alpha: 0.7),
             ),
@@ -51,26 +133,38 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricsView(BuildContext context, ReviewRecord record) {
+  Widget _buildMetricsView(
+    BuildContext context,
+    ReviewRecord record,
+    GuardianProvider guardian,
+  ) {
     final theme = Theme.of(context);
+    final liveScore = guardian.events.isNotEmpty
+        ? guardian.events.last.overallRiskScore
+        : (record.lastRiskPayload?.overallRiskScore ?? 0.0);
+    final severity = _deriveSeverity(liveScore);
+    final timeline = _buildTimeline(guardian, record);
+    final lastPayload = guardian.events.isNotEmpty
+        ? guardian.events.last
+        : record.lastRiskPayload;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Suspicion score header bar (if available)
-        if (record.latestSuspicion != null)
-          _buildScoreHeader(theme, record.latestSuspicion!),
+        // ═══ Anomaly Risk Index Gauge (always visible) ═══
+        _buildAnomalyGaugeCard(theme, liveScore, severity, lastPayload),
         const Divider(height: 1),
 
-        // Timeline entries
+        // ═══ Scrollable Live Micro-Event Stream ═══
         Expanded(
-          child: record.timeline.isEmpty
+          child: timeline.isEmpty
               ? _buildNoEventsPlaceholder(theme)
               : ListView.builder(
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(12),
-                  itemCount: record.timeline.length,
+                  itemCount: timeline.length,
                   itemBuilder: (context, index) {
-                    return _buildTimelineTile(theme, record.timeline[index]);
+                    return _buildTimelineTile(theme, timeline[index]);
                   },
                 ),
         ),
@@ -78,70 +172,99 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildScoreHeader(ThemeData theme, SuspicionPayload suspicion) {
-    final color = _severityColor(suspicion.severity, theme);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Anomaly Risk Index Circular Gauge Card
+  // ═══════════════════════════════════════════════════════════════════════════
 
+  Widget _buildAnomalyGaugeCard(
+    ThemeData theme,
+    double score,
+    String severity,
+    RiskAssessmentPayload? lastPayload,
+  ) {
+    final color = _severityColor(severity, theme);
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.08)),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.06)),
+      child: Row(
         children: [
-          // Score gauge
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Suspicion Score', style: theme.textTheme.titleSmall),
-              _severityBadge(theme, suspicion.severity),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: suspicion.suspicionScore / 100),
-            duration: const Duration(milliseconds: 800),
-            curve: Curves.easeOutCubic,
-            builder: (context, value, _) {
-              return Column(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
+          // Circular progress indicator
+          SizedBox(
+            width: 72,
+            height: 72,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: score / 100.0),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) {
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
                       value: value,
-                      minHeight: 10,
+                      strokeWidth: 6,
                       backgroundColor:
                           theme.colorScheme.surfaceContainerHighest,
                       valueColor: AlwaysStoppedAnimation(color),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '${suspicion.suspicionScore.toStringAsFixed(1)} / 100',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w600,
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          score.toStringAsFixed(0),
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Labels + metrics
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'ANOMALY RISK INDEX',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                        letterSpacing: 0.8,
                       ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _metricChip(
-                theme,
-                Icons.event,
-                '${suspicion.flaggedEvents.length} events',
-              ),
-              const SizedBox(width: 12),
-              _metricChip(
-                theme,
-                Icons.timer_outlined,
-                _formatTimestamp(suspicion.generatedAt),
-              ),
-            ],
+                    _severityBadge(theme, severity),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _metricChip(
+                      theme,
+                      Icons.event,
+                      '${lastPayload?.flags.length ?? 0} flags',
+                      onTap: _scrollToFirstRiskAssessment,
+                    ),
+                    const SizedBox(width: 12),
+                    _metricChip(
+                      theme,
+                      Icons.timer_outlined,
+                      lastPayload != null
+                          ? _formatTimestamp(lastPayload.generatedAt)
+                          : '—',
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -170,14 +293,8 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildTimelineTile(ThemeData theme, Map<String, dynamic> entry) {
-    final eventType = entry['eventType'] as String? ?? 'unknown';
-    final label = entry['label'] as String? ?? eventType;
-    final detail = entry['detail'] as String? ?? '';
-    final severity = entry['severity'] as String? ?? 'info';
-    final timestamp = _parseTimelineTimestamp(entry['timestamp']);
-    final eventColor = _timelineSeverityColor(severity, theme);
-
+  Widget _buildTimelineTile(ThemeData theme, _TimelineEntry entry) {
+    final eventColor = _timelineSeverityColor(entry.severity, theme);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
@@ -195,7 +312,7 @@ class SecurityMetricsPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                _timelineIcon(eventType),
+                _timelineIcon(entry.eventType),
                 size: 18,
                 color: eventColor,
               ),
@@ -211,20 +328,20 @@ class SecurityMetricsPanel extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          label,
+                          entry.label,
                           style: theme.textTheme.labelMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      _severityBadge(theme, severity),
+                      _severityBadge(theme, entry.severity),
                     ],
                   ),
-                  if (detail.isNotEmpty) ...[
+                  if (entry.detail.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      detail,
+                      entry.detail,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                         fontFamily: 'monospace',
@@ -236,7 +353,7 @@ class SecurityMetricsPanel extends StatelessWidget {
                   ],
                   const SizedBox(height: 4),
                   Text(
-                    _formatTimestamp(timestamp),
+                    _formatTimestamp(entry.timestamp),
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
                       fontSize: 10,
@@ -252,6 +369,12 @@ class SecurityMetricsPanel extends StatelessWidget {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+
+  String _deriveSeverity(double score) {
+    if (score >= 75) return 'critical';
+    if (score >= 45) return 'elevated';
+    return 'info';
+  }
 
   Widget _severityBadge(ThemeData theme, String severity) {
     final color = _severityColor(severity, theme);
@@ -272,19 +395,48 @@ class SecurityMetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _metricChip(ThemeData theme, IconData icon, String label) {
-    return Row(
+  Widget _metricChip(
+    ThemeData theme,
+    IconData icon,
+    String label, {
+    VoidCallback? onTap,
+  }) {
+    final chip = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 13, color: theme.colorScheme.outline),
+        Icon(
+          icon,
+          size: 14,
+          color: onTap != null
+              ? theme.colorScheme.primary
+              : theme.colorScheme.outline,
+        ),
         const SizedBox(width: 4),
         Text(
           label,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
+            color: onTap != null
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline,
           ),
         ),
       ],
+    );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: chip,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: chip,
     );
   }
 
@@ -330,6 +482,8 @@ class SecurityMetricsPanel extends StatelessWidget {
         return Icons.fullscreen_exit;
       case 'SUBMIT':
         return Icons.send;
+      case 'RISK_ASSESSMENT':
+        return Icons.analytics_outlined;
       default:
         return Icons.help_outline;
     }
@@ -359,4 +513,21 @@ class SecurityMetricsPanel extends StatelessWidget {
       return timestamp;
     }
   }
+}
+
+/// Lightweight internal model for the merged timeline list.
+class _TimelineEntry {
+  final String timestamp;
+  final String eventType;
+  final String label;
+  final String detail;
+  final String severity;
+
+  const _TimelineEntry({
+    required this.timestamp,
+    required this.eventType,
+    required this.label,
+    required this.detail,
+    required this.severity,
+  });
 }

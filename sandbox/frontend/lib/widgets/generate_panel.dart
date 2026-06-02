@@ -3,331 +3,329 @@ import 'package:provider/provider.dart';
 
 import '../models/generate_model.dart';
 import '../providers/generate_provider.dart';
+import '../providers/identity_provider.dart';
+import '../providers/guardian_provider.dart';
+import '../providers/review_provider.dart';
 
-/// ─── Cerberus AI — Generate Panel ───────────────────────────────────────────
-/// Structured assessment generator with mandatory fields, validation,
-/// and manual retry UI for transient API errors.
+/// ─── Cerberus FinSec — Compliance Matrix Bottom Sheet ─────────────────────────
+/// A self-contained bottom sheet that handles the full lifecycle:
+///   Configuration → Loading → Result/Deploy → Error/Cancelled.
 ///
-/// Auto-retry logic is handled by [GenerateProvider]; this widget only
-/// surfaces the final state after auto-retries are exhausted (or success).
+/// Called from the dashboard via [ComplianceSheet.show].
+/// While generation is in-flight the sheet cannot be dismissed;
+/// after a result is produced the user must deploy (or explicitly discard)
+/// before the sheet can be closed.
 
-class GeneratePanel extends StatefulWidget {
-  const GeneratePanel({super.key});
+class ComplianceSheet {
+  ComplianceSheet._();
 
-  @override
-  State<GeneratePanel> createState() => _GeneratePanelState();
+  /// Shows the compliance matrix bottom sheet.
+  static void show(BuildContext context) {
+    Navigator.of(context).push(
+      _ComplianceSheetRoute(builder: (ctx) => const _ComplianceSheetContent()),
+    );
+  }
 }
 
-class _GeneratePanelState extends State<GeneratePanel> {
+// ═══════════════════════════════════════════════════════════════════════════════
+// Deploy Dialog — pre-filled fields + manual session ID entry
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _DeployDialog extends StatefulWidget {
+  final String employeeId;
+  final String matrixId;
+  final String targetSystem;
+  final String defaultSessionId;
+
+  const _DeployDialog({
+    required this.employeeId,
+    required this.matrixId,
+    required this.targetSystem,
+    required this.defaultSessionId,
+  });
+
+  @override
+  State<_DeployDialog> createState() => _DeployDialogState();
+}
+
+class _DeployDialogState extends State<_DeployDialog> {
+  late final TextEditingController _sessionIdController;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionIdController = TextEditingController(text: widget.defaultSessionId);
+  }
+
+  @override
+  void dispose() {
+    _sessionIdController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.rocket_launch, size: 22, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          const Text('Deploy Compliance Matrix'),
+        ],
+      ),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Employee ID (pre-filled, read-only)
+            _buildReadOnlyField(
+              theme,
+              'Employee ID',
+              widget.employeeId,
+              Icons.badge_outlined,
+            ),
+            const SizedBox(height: 12),
+            // Matrix ID (pre-filled, read-only)
+            _buildReadOnlyField(
+              theme,
+              'Matrix ID',
+              widget.matrixId,
+              Icons.fingerprint,
+            ),
+            const SizedBox(height: 12),
+            // Target System (pre-filled, read-only)
+            _buildReadOnlyField(
+              theme,
+              'Target System',
+              widget.targetSystem,
+              Icons.dns_outlined,
+            ),
+            const SizedBox(height: 16),
+            // Session ID (user must enter)
+            Text(
+              'Session ID',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _sessionIdController,
+              decoration: InputDecoration(
+                hintText: 'e.g. session_abc123',
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: Icon(
+                  Icons.tag,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter a session ID';
+                }
+                if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(value.trim())) {
+                  return 'Only alphanumeric, dash, and underscore allowed';
+                }
+                return null;
+              },
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _onDeployPressed(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _onDeployPressed,
+          icon: const Icon(Icons.rocket_launch, size: 16),
+          label: const Text('Deploy'),
+          style: FilledButton.styleFrom(
+            backgroundColor: theme.colorScheme.primary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReadOnlyField(
+    ThemeData theme,
+    String label,
+    String value,
+    IconData icon,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.outline),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  value,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _onDeployPressed() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.of(context).pop(_sessionIdController.text.trim());
+    }
+  }
+}
+
+// ── Custom modal route ────────────────────────────────────────────────────────
+class _ComplianceSheetRoute<T> extends PopupRoute<T> {
+  _ComplianceSheetRoute({required this.builder});
+
+  final WidgetBuilder builder;
+
+  @override
+  bool get barrierDismissible => false;
+
+  @override
+  String? get barrierLabel => null;
+
+  @override
+  Color get barrierColor => Colors.black54;
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 300);
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    return builder(context);
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+      child: child,
+    );
+  }
+}
+
+// ── Content widget ────────────────────────────────────────────────────────────
+
+class _ComplianceSheetContent extends StatefulWidget {
+  const _ComplianceSheetContent();
+
+  @override
+  State<_ComplianceSheetContent> createState() =>
+      _ComplianceSheetContentState();
+}
+
+class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
   final _promptController = TextEditingController();
   final _scrollController = ScrollController();
 
-  // ── Structured mandatory fields ────────────────────────────────────────
-  String _selectedDomain = '';
-  int _problemCount = 1;
-  double _beginnerWeight = 0.3;
-  double _intermediateWeight = 0.5;
-  double _advancedWeight = 0.2;
+  String _selectedTargetSystem = '';
+  int _vectorCount = 1;
+  double _routineWeight = 0.3;
+  double _elevatedWeight = 0.5;
+  double _criticalWeight = 0.2;
+  static const double _riskFloor = 0.1;
 
-  /// Each difficulty tier must account for at least this fraction (10%).
-  static const double _difficultyFloor = 0.1;
+  bool _hasDeployed = false;
 
-  /// Broad domain categories covering the full professional spectrum.
-  /// Users select a domain; their free-text prompt is then scoped through
-  /// that domain's lens when sent to Gemini.
-  static const _domainOptions = <Map<String, String>>[
-    {'value': '', 'label': '— Select a domain —'},
-    {'value': 'software-engineering', 'label': 'Software Engineering'},
-    {'value': 'healthcare-medicine', 'label': 'Healthcare & Medicine'},
-    {'value': 'finance-accounting', 'label': 'Finance & Accounting'},
-    {'value': 'legal-law', 'label': 'Legal & Law'},
-    {'value': 'education-teaching', 'label': 'Education & Teaching'},
-    {'value': 'marketing-sales', 'label': 'Marketing & Sales'},
-    {'value': 'hr-recruitment', 'label': 'HR & Recruitment'},
-    {'value': 'operations-logistics', 'label': 'Operations & Logistics'},
-    {
-      'value': 'construction-engineering',
-      'label': 'Construction & Engineering',
-    },
-    {'value': 'retail-ecommerce', 'label': 'Retail & E-Commerce'},
-    {'value': 'media-journalism', 'label': 'Media & Journalism'},
-    {'value': 'hospitality-tourism', 'label': 'Hospitality & Tourism'},
-    {'value': 'agriculture-farming', 'label': 'Agriculture & Farming'},
-    {
-      'value': 'government-public-service',
-      'label': 'Government & Public Service',
-    },
-    {'value': 'manufacturing', 'label': 'Manufacturing'},
-    {'value': 'arts-design', 'label': 'Arts & Design'},
-    {'value': 'data-science-analytics', 'label': 'Data Science & Analytics'},
-    {'value': 'cybersecurity', 'label': 'Cybersecurity'},
-    {'value': 'real-estate', 'label': 'Real Estate'},
-    {'value': 'energy-utilities', 'label': 'Energy & Utilities'},
-    {'value': 'other', 'label': 'Other / General'},
+  static const _targetSystemOptions = <Map<String, String>>[
+    {'value': '', 'label': '- Select target system -'},
+    {'value': 'core-trading-ledger', 'label': 'Core Trading Ledger'},
+    {'value': 'swift-gateway', 'label': 'SWIFT Gateway'},
+    {'value': 'hft-desk', 'label': 'High-Frequency Trading Desk'},
+    {'value': 'aml-compliance', 'label': 'AML Compliance Engine'},
+    {'value': 'fedwire-gateway', 'label': 'Fedwire Funds Gateway'},
+    {'value': 'ach-processor', 'label': 'ACH Batch Processor'},
+    {'value': 'treasury-mgmt', 'label': 'Treasury Management System'},
+    {'value': 'kyc-onboarding', 'label': 'KYC Onboarding Platform'},
+    {'value': 'fraud-detection', 'label': 'Fraud Detection Engine'},
+    {'value': 'regulatory-reporting', 'label': 'Regulatory Reporting Hub'},
+    {'value': 'digital-banking', 'label': 'Digital Banking Platform'},
+    {'value': 'card-issuance', 'label': 'Card Issuance & Authorization'},
+    {'value': 'market-data-feed', 'label': 'Market Data Feed'},
+    {'value': 'risk-management', 'label': 'Risk Management Console'},
+    {'value': 'clearing-settlement', 'label': 'Clearing & Settlement'},
+    {'value': 'wealth-management', 'label': 'Wealth Management Portal'},
+    {'value': 'insurance-underwriting', 'label': 'Insurance Underwriting'},
+    {'value': 'crypto-custody', 'label': 'Digital Asset Custody'},
+    {'value': 'comms-surveillance', 'label': 'Communications Surveillance'},
+    {'value': 'other-finsys', 'label': 'Other / Generic FinSys'},
   ];
 
-  /// Maps each domain value to a Material [IconData] (no emoji → no font crash).
-  static const _domainIcons = <String, IconData>{
-    'software-engineering': Icons.computer,
-    'healthcare-medicine': Icons.medical_services_outlined,
-    'finance-accounting': Icons.account_balance_outlined,
-    'legal-law': Icons.gavel_outlined,
-    'education-teaching': Icons.school_outlined,
-    'marketing-sales': Icons.campaign_outlined,
-    'hr-recruitment': Icons.people_outline,
-    'operations-logistics': Icons.local_shipping_outlined,
-    'construction-engineering': Icons.construction_outlined,
-    'retail-ecommerce': Icons.store_outlined,
-    'media-journalism': Icons.newspaper_outlined,
-    'hospitality-tourism': Icons.hotel_outlined,
-    'agriculture-farming': Icons.agriculture_outlined,
-    'government-public-service': Icons.account_balance_outlined,
-    'manufacturing': Icons.factory_outlined,
-    'arts-design': Icons.palette_outlined,
-    'data-science-analytics': Icons.analytics_outlined,
-    'cybersecurity': Icons.security_outlined,
-    'real-estate': Icons.real_estate_agent_outlined,
-    'energy-utilities': Icons.bolt_outlined,
-    'other': Icons.public_outlined,
-  };
-
-  /// Domain-specific example prompt chips (shown as quick-tap suggestions).
-  /// Falls back to generic examples for domains without specific entries.
-  static const _domainExampleChips = <String, List<String>>{
-    'software-engineering': [
-      'React hooks testing',
-      'async/await patterns',
-      'SQL query optimization',
-      'system design interview',
-      'API rate limiting',
-      'Python data structures',
-      'container orchestration',
-    ],
-    'healthcare-medicine': [
-      'patient triage protocols',
-      'medication dosage calculation',
-      'medical ethics scenarios',
-      'anatomy and physiology',
-      'diagnostic reasoning',
-      'HIPAA compliance',
-    ],
-    'finance-accounting': [
-      'financial statement analysis',
-      'IFRS vs GAAP differences',
-      'tax planning scenarios',
-      'auditing procedures',
-      'investment portfolio risk',
-      'fraud detection methods',
-    ],
-    'legal-law': [
-      'contract clause interpretation',
-      'intellectual property case analysis',
-      'criminal law scenarios',
-      'legal ethics and professional conduct',
-      'constitutional law principles',
-      'negotiation and mediation',
-    ],
-    'education-teaching': [
-      'lesson plan design',
-      'classroom management strategies',
-      'student assessment methods',
-      'educational psychology',
-      'curriculum alignment',
-      'differentiated instruction',
-    ],
-    'marketing-sales': [
-      'brand positioning analysis',
-      'SEO and content strategy',
-      'sales pipeline management',
-      'market segmentation',
-      'A/B testing campaigns',
-      'CRM best practices',
-    ],
-    'hr-recruitment': [
-      'structured interview design',
-      'compensation and benefits',
-      'employment law compliance',
-      'performance review framework',
-      'diversity and inclusion',
-      'talent retention strategies',
-    ],
-    'operations-logistics': [
-      'supply chain optimization',
-      'inventory management',
-      'lean process improvement',
-      'logistics network design',
-      'warehouse safety protocols',
-      'procurement strategy',
-    ],
-    'construction-engineering': [
-      'structural load calculation',
-      'building code compliance',
-      'site safety planning',
-      'material specification',
-      'cost estimation methods',
-      'project scheduling',
-    ],
-    'retail-ecommerce': [
-      'merchandising strategy',
-      'customer experience design',
-      'inventory turnover analysis',
-      'omnichannel retail',
-      'pricing optimization',
-      'POS system operations',
-    ],
-    'media-journalism': [
-      'source verification methods',
-      'interviewing techniques',
-      'editorial ethics',
-      'AP style and copy editing',
-      'investigative reporting',
-      'digital content strategy',
-    ],
-    'hospitality-tourism': [
-      'guest service standards',
-      'revenue management',
-      'event planning and coordination',
-      'food safety and hygiene',
-      'hotel operations',
-      'travel itinerary design',
-    ],
-    'agriculture-farming': [
-      'crop rotation planning',
-      'soil testing and amendment',
-      'livestock health management',
-      'sustainable farming practices',
-      'harvest planning',
-      'pest integrated management',
-    ],
-    'government-public-service': [
-      'policy impact analysis',
-      'public budget planning',
-      'regulatory compliance',
-      'constituent service design',
-      'emergency preparedness',
-      'grant writing',
-    ],
-    'manufacturing': [
-      'production line efficiency',
-      'quality control standards',
-      'safety compliance audit',
-      'lean manufacturing',
-      'equipment maintenance',
-      'ISO certification prep',
-    ],
-    'arts-design': [
-      'color theory and composition',
-      'typography fundamentals',
-      'UX/UI design principles',
-      'brand identity design',
-      'creative brief analysis',
-      'portfolio critique',
-    ],
-    'data-science-analytics': [
-      'hypothesis testing',
-      'regression analysis',
-      'data cleaning and ETL',
-      'ML model evaluation',
-      'statistical inference',
-      'dashboard design',
-    ],
-    'cybersecurity': [
-      'threat modeling',
-      'incident response plan',
-      'penetration testing',
-      'risk assessment framework',
-      'encryption standards',
-      'SOC compliance',
-    ],
-    'real-estate': [
-      'property valuation methods',
-      'market trend analysis',
-      'contract and escrow',
-      'zoning regulations',
-      'REIT fundamentals',
-      'property management',
-    ],
-    'energy-utilities': [
-      'grid reliability analysis',
-      'renewable energy integration',
-      'energy trading basics',
-      'carbon credit accounting',
-      'power system protection',
-      'sustainability metrics',
-    ],
-    'other': [
-      'problem-solving under pressure',
-      'scenario-based decision making',
-      'role-specific competency evaluation',
-      'technical skill assessment',
-      'soft skills and communication',
-      'knowledge gap analysis',
-    ],
-  };
-
-  /// Domain-specific keyword hints shown below the structured fields.
-  /// Falls back to generic hints when no domain-specific suggestions exist.
-  static const _domainKeywords = <String, String>{
-    'software-engineering':
-        'coding · algorithms · system design · APIs · databases · testing · '
-        'CI/CD · microservices · cloud architecture · debugging',
-    'healthcare-medicine':
-        'patient care · diagnostics · pharmacology · medical ethics · '
-        'anatomy · treatment protocols · public health · HIPAA · triage',
-    'finance-accounting':
-        'financial statements · auditing · risk management · tax planning · '
-        'IFRS/GAAP · budgeting · valuation · compliance · investment analysis',
-    'legal-law':
-        'contract law · litigation · intellectual property · regulatory compliance · '
-        'legal research · due diligence · case analysis · negotiation · ethics',
-    'education-teaching':
-        'curriculum design · pedagogy · assessment methods · classroom management · '
-        'lesson planning · educational psychology · student engagement · grading',
-    'marketing-sales':
-        'brand strategy · SEO/SEM · lead generation · market research · '
-        'CRM · content marketing · pipeline management · A/B testing · ROI',
-    'hr-recruitment':
-        'talent acquisition · onboarding · performance reviews · employment law · '
-        'compensation · workforce planning · employee engagement · HRIS · DEI',
-    'operations-logistics':
-        'supply chain · inventory management · process optimization · lean/Six Sigma · '
-        'warehousing · procurement · fleet management · KPI tracking · ERP',
-    'construction-engineering':
-        'structural analysis · blueprints · material science · site safety · '
-        'project estimation · CAD/BIM · building codes · surveying · HVAC',
-    'retail-ecommerce':
-        'merchandising · inventory turnover · customer experience · omnichannel · '
-        'pricing strategy · fulfillment · category management · POS systems',
-    'media-journalism':
-        'storytelling · fact-checking · editorial ethics · content strategy · '
-        'interview technique · AP style · multimedia production · source verification',
-    'hospitality-tourism':
-        'guest relations · revenue management · event planning · F&B operations · '
-        'hotel operations · customer service · travel coordination · safety standards',
-    'agriculture-farming':
-        'crop science · soil management · livestock care · irrigation · '
-        'sustainable farming · pest control · harvest planning · agribusiness',
-    'government-public-service':
-        'policy analysis · public administration · regulatory affairs · budgeting · '
-        'constituent services · grant writing · emergency management · procurement',
-    'manufacturing':
-        'production planning · quality control · lean manufacturing · safety compliance · '
-        'equipment maintenance · supply chain · Kaizen · ISO standards · throughput',
-    'arts-design':
-        'composition · color theory · typography · UX/UI · branding · '
-        'portfolio development · creative direction · prototyping · visual storytelling',
-    'data-science-analytics':
-        'statistical modeling · machine learning · data visualization · SQL · '
-        'ETL pipelines · hypothesis testing · predictive analytics · Python · R',
-    'cybersecurity':
-        'threat modeling · incident response · penetration testing · SIEM · '
-        'risk assessment · encryption · network security · compliance · IAM',
-    'real-estate':
-        'property valuation · market analysis · contract negotiation · zoning · '
-        'REITs · leasing · due diligence · escrow · property management',
-    'energy-utilities':
-        'grid management · renewable energy · regulatory compliance · energy trading · '
-        'sustainability · power systems · carbon credits · smart grids · asset management',
+  static const _targetSystemIcons = <String, IconData>{
+    'core-trading-ledger': Icons.account_balance,
+    'swift-gateway': Icons.swap_horiz,
+    'hft-desk': Icons.speed,
+    'aml-compliance': Icons.gavel,
+    'fedwire-gateway': Icons.currency_exchange,
+    'ach-processor': Icons.receipt_long,
+    'treasury-mgmt': Icons.savings,
+    'kyc-onboarding': Icons.person_search,
+    'fraud-detection': Icons.shield,
+    'regulatory-reporting': Icons.description,
+    'digital-banking': Icons.phone_android,
+    'card-issuance': Icons.credit_card,
+    'market-data-feed': Icons.show_chart,
+    'risk-management': Icons.warning_amber,
+    'clearing-settlement': Icons.compare_arrows,
+    'wealth-management': Icons.diamond,
+    'insurance-underwriting': Icons.health_and_safety,
+    'crypto-custody': Icons.key,
+    'comms-surveillance': Icons.mic,
+    'other-finsys': Icons.cloud,
   };
 
   @override
@@ -337,49 +335,105 @@ class _GeneratePanelState extends State<GeneratePanel> {
     super.dispose();
   }
 
-  /// Client-side pre-flight check before calling the API.
-  /// Returns null if valid, or an error message string if invalid.
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Close guard
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  void _tryClose() {
+    final gen = context.read<GenerateProvider>();
+
+    if (gen.isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cannot close while generation is in progress. '
+            'Cancel the generation first.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (gen.matrix != null && !_hasDeployed) {
+      _showDiscardConfirmDialog();
+      return;
+    }
+
+    _resetAndPop();
+  }
+
+  void _showDiscardConfirmDialog() {
+    final theme = Theme.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(
+          Icons.warning_amber_rounded,
+          color: theme.colorScheme.error,
+          size: 32,
+        ),
+        title: const Text('Discard Generated Matrix?'),
+        content: const Text(
+          'You have not deployed this compliance matrix. '
+          'If you close now, the generated result will be lost '
+          'and you will need to generate it again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _resetAndPop();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.error,
+            ),
+            child: const Text('Discard & Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _resetAndPop() {
+    context.read<GenerateProvider>().reset();
+    Navigator.of(context).pop();
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Validation
+  // ═════════════════════════════════════════════════════════════════════════════
+
   String? _validatePrompt(String prompt) {
     final trimmed = prompt.trim();
-
     if (trimmed.isEmpty) {
-      return 'Please enter a prompt describing the assessment you want to '
-          'generate.';
+      return 'Please enter a prompt describing the compliance audit or '
+          'threat matrix you want to generate.';
     }
-
-    // ── Only block clearly non-assessment chat ─────────────────────────
-    // Pure greetings
     if (RegExp(
-      r'^(hi|hey|hello|yo|sup|hola|howdy|greetings|good\s+(morning|afternoon|evening|night))\s*[!.,]*$',
+      r'^(hi|hey|hello|yo|sup|hola|howdy|greetings|good\s+'
+      r'(morning|afternoon|evening|night))\s*[!.,]*$',
       caseSensitive: false,
     ).hasMatch(trimmed)) {
-      return 'This AI generates assessments. Describe what you want to test — e.g. '
-          '"grid reliability analysis for power systems engineers".';
+      return 'This AI generates compliance policy and threat matrices. '
+          'Describe the target system and regulatory mandates to audit.';
     }
-    // Pure small talk / thanks / goodbyes
     if (RegExp(
-      r'^(ok|okay|k|kk|alright|fine|cool|nice|great|awesome|thanks|thx|ty|thank\s+you|bye|goodbye|see\s+you|cya|ttyl|later|no|yes|nope|yep|idk|idc|wtf|lol|rofl|lmao|omg|bruh|whatever|meh)\s*[!.,]*$',
+      r'^(ok|okay|k|kk|alright|fine|cool|nice|great|awesome|thanks|thx|ty|'
+      r'thank\s+you|bye|goodbye|see\s+you|cya|ttyl|later|no|yes|nope|yep|'
+      r'idk|idc|wtf|lol|rofl|lmao|omg|bruh|whatever|meh)\s*[!.,]*$',
       caseSensitive: false,
     ).hasMatch(trimmed)) {
-      return 'This AI generates assessments. Describe what you want to test — e.g. '
-          '"grid reliability analysis for power systems engineers".';
+      return 'This AI generates compliance policy and threat matrices. '
+          'Describe the target system and regulatory mandates to audit.';
     }
-    // Pure questions about the AI itself
-    if (RegExp(
-      r'^(what\s+(is|are|do|can)\s+(you|this)|how\s+(do|are|can)\s+(you|i)|who\s+(are|is)\s+you|tell\s+me\s+(about|a))\b',
-      caseSensitive: false,
-    ).hasMatch(trimmed)) {
-      return 'This AI generates assessments only. Describe the role, skills, or '
-          'competencies you want to test — e.g. "React hooks testing scenarios '
-          'for senior frontend engineers".';
-    }
-
-    // Everything else is treated as an assessment prompt
     return null;
   }
 
-  /// Shows a persistent alert dialog for validation or API errors.
-  /// The dialog stays until the user taps "OK" — it does NOT auto-dismiss.
   void _showErrorDialog(String message, {String title = 'Validation Error'}) {
     showDialog<void>(
       context: context,
@@ -403,72 +457,58 @@ class _GeneratePanelState extends State<GeneratePanel> {
     );
   }
 
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Generate trigger
+  // ═════════════════════════════════════════════════════════════════════════════
+
   void _onGenerate() {
     final prompt = _promptController.text;
     if (prompt.trim().isEmpty) return;
-
-    // ── Validate domain is selected ───────────────────────────────────
-    if (_selectedDomain.isEmpty) {
+    if (_selectedTargetSystem.isEmpty) {
       _showErrorDialog(
-        'Please select a domain (e.g. "Software Engineering") before generating.',
-        title: 'Missing Domain',
+        'Please select a target system (e.g. "SWIFT Gateway") before generating.',
+        title: 'Missing Target System',
       );
       return;
     }
-
-    // ── Client-side semantic check ───────────────────────────────────
     final validationError = _validatePrompt(prompt);
     if (validationError != null) {
       _showErrorDialog(validationError);
       return;
     }
-
-    // ── Build structured prompt with mandatory fields ─────────────────
     final structuredPrompt = _buildStructuredPrompt(prompt);
-
     FocusScope.of(context).unfocus();
     _promptController.clear();
+    _hasDeployed = false;
     context.read<GenerateProvider>().generate(
       structuredPrompt,
-      problemCount: _problemCount,
-      roleContext: _selectedDomain,
+      vectorCount: _vectorCount,
+      targetSystemContext: _selectedTargetSystem,
     );
   }
 
-  /// Composes a structured, keyword-rich prompt from the user's free-text
-  /// description and the mandatory structured fields (role, count, difficulty).
   String _buildStructuredPrompt(String userPrompt) {
-    final domainLabel = _domainOptions.firstWhere(
-      (d) => d['value'] == _selectedDomain,
-      orElse: () => _domainOptions.first,
+    final systemLabel = _targetSystemOptions.firstWhere(
+      (d) => d['value'] == _selectedTargetSystem,
+      orElse: () => _targetSystemOptions.first,
     )['label']!;
-
-    final difficultyDesc = _buildDifficultyDescription();
-
-    return '''Domain: $domainLabel
-Difficulty distribution: $difficultyDesc
-Number of problems: $_problemCount
-Requirements: $userPrompt
---- 
-IMPORTANT: Scope ALL assessment questions, competencies, and role descriptions 
-exclusively within the "$domainLabel" domain. Do NOT generate generic software 
-engineering problems unless the domain is Software Engineering.''';
+    final riskDesc =
+        '${(_routineWeight * 100).round()}% routine, '
+        '${(_elevatedWeight * 100).round()}% elevated, '
+        '${(_criticalWeight * 100).round()}% critical';
+    return 'Target System: $systemLabel\n'
+        'Risk distribution: $riskDesc\n'
+        'Number of threat vectors: $_vectorCount\n'
+        'Audit requirements: $userPrompt\n'
+        '---\n'
+        'IMPORTANT: Scope ALL threat vectors, regulatory mandates, and '
+        'penetration scenarios exclusively within the "$systemLabel" '
+        'context. Include specific regulatory rules (AML, SOX, GDPR, '
+        'FINRA, etc.) where applicable.';
   }
 
-  String _buildDifficultyDescription() {
-    final total = _beginnerWeight + _intermediateWeight + _advancedWeight;
-    if (total <= 0) return 'balanced';
-    return '${(_beginnerWeight / total * 100).round()}% beginner, '
-        '${(_intermediateWeight / total * 100).round()}% intermediate, '
-        '${(_advancedWeight / total * 100).round()}% advanced';
-  }
-
-  void _onRetry() {
-    context.read<GenerateProvider>().retry();
-  }
-
-  /// Shows a confirmation dialog before cancelling generation.
-  void _confirmCancel(ThemeData theme) {
+  void _confirmCancel() {
+    final theme = Theme.of(context);
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -477,7 +517,7 @@ engineering problems unless the domain is Software Engineering.''';
           color: theme.colorScheme.error,
           size: 32,
         ),
-        title: const Text('Cancel Generation?'),
+        title: const Text('Cancel Matrix Generation?'),
         content: const Text(
           'Are you sure you want to stop the current generation? '
           'Your prompt and settings will be saved so you can resume later.',
@@ -502,591 +542,361 @@ engineering problems unless the domain is Software Engineering.''';
     );
   }
 
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Build
+  // ═════════════════════════════════════════════════════════════════════════════
+
   @override
   Widget build(BuildContext context) {
-    final gen = context.watch<GenerateProvider>();
     final theme = Theme.of(context);
-    final hasResult = gen.suite != null;
+    final gen = context.watch<GenerateProvider>();
 
-    return Column(
-      children: [
-        // ── Header ──────────────────────────────────────────────────────
-        _buildHeader(theme),
-        const Divider(height: 1),
-        // ── Collapse params when result is showing; full fields otherwise
-        if (hasResult)
-          _buildCompactParamsBar(theme, gen)
-        else ...[
-          _buildStructuredFields(theme, gen.isLoading),
-          _buildPromptInput(theme, gen.isLoading),
-          const SizedBox(height: 12),
-        ],
-        // ── Body — loading / error / result ──────────────────────────────
-        Expanded(child: _buildBody(theme, gen)),
-      ],
-    );
-  }
+    final bool showLoading = gen.isLoading;
+    final bool showCancelled = gen.isCancelled;
+    final bool showError =
+        gen.error != null && gen.matrix == null && !gen.isCancelled;
+    final bool showResult = gen.matrix != null;
 
-  // ── Header ────────────────────────────────────────────────────────────────
-  Widget _buildHeader(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Icon(Icons.auto_awesome, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 8),
-          Text(
-            'Test Suite Generator',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const Spacer(),
-          // Reset button (visible when suite exists)
-          Consumer<GenerateProvider>(
-            builder: (_, gen, __) {
-              if (gen.suite == null && gen.error == null) {
-                return const SizedBox.shrink();
-              }
-              return IconButton(
-                icon: Icon(
-                  Icons.refresh,
-                  size: 20,
-                  color: theme.colorScheme.onSurfaceVariant,
+    return GestureDetector(
+      onTap: () {},
+      child: SafeArea(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.88,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
                 ),
-                tooltip: 'Reset',
-                onPressed: gen.isLoading
-                    ? null
-                    : () {
-                        _promptController.clear();
-                        context.read<GenerateProvider>().reset();
-                      },
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Structured mandatory fields ───────────────────────────────────────────
-  Widget _buildStructuredFields(ThemeData theme, bool isLoading) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          // Section label
-          Row(
-            children: [
-              Icon(Icons.tune, size: 16, color: theme.colorScheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                'Mandatory Parameters',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // ── Role selector ──────────────────────────────────────────
-          _buildRoleDropdown(theme, isLoading),
-          const SizedBox(height: 10),
-          // ── Problem count ──────────────────────────────────────────
-          _buildProblemCountRow(theme, isLoading),
-          const SizedBox(height: 10),
-          // ── Difficulty distribution ─────────────────────────────────
-          _buildDifficultySliders(theme, isLoading),
-          const SizedBox(height: 12),
-          // Keyword hints
-          _buildKeywordHints(theme),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
-  /// Compact summary bar shown above results instead of the full-form fields.
-  /// Saves vertical space once a suite has been generated, but still displays
-  /// the key parameters that were used.
-  Widget _buildCompactParamsBar(ThemeData theme, GenerateProvider gen) {
-    final domainLabel = _domainOptions.firstWhere(
-      (d) => d['value'] == _selectedDomain,
-      orElse: () => _domainOptions.first,
-    )['label']!;
-    final domainIcon = _domainIcons[_selectedDomain] ?? Icons.category_outlined;
-    final difficultyDesc =
-        '${(_beginnerWeight * 100).round()}E / ${(_intermediateWeight * 100).round()}M / ${(_advancedWeight * 100).round()}H';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        border: Border(
-          bottom: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(domainIcon, size: 16, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            domainLabel,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Icon(Icons.quiz_outlined, size: 14, color: theme.colorScheme.outline),
-          const SizedBox(width: 4),
-          Text('$_problemCount', style: theme.textTheme.labelSmall),
-          const SizedBox(width: 12),
-          Icon(Icons.tune, size: 14, color: theme.colorScheme.outline),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              difficultyDesc,
-              style: theme.textTheme.labelSmall,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          TextButton.icon(
-            icon: const Icon(Icons.edit, size: 14),
-            label: const Text('New'),
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            onPressed: gen.isLoading
-                ? null
-                : () {
-                    _promptController.clear();
-                    context.read<GenerateProvider>().reset();
-                  },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoleDropdown(ThemeData theme, bool isLoading) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 72,
-          child: Text(
-            'Domain',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedDomain,
-                isExpanded: true,
-                isDense: true,
-                icon: Icon(
-                  Icons.arrow_drop_down,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                ),
-                items: _domainOptions.map((domain) {
-                  final value = domain['value']!;
-                  final icon = _domainIcons[value] ?? Icons.category_outlined;
-                  return DropdownMenuItem<String>(
-                    value: value,
+              child: Column(
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 6),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.3,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 4,
+                    ),
                     child: Row(
                       children: [
-                        Icon(icon, size: 18, color: theme.colorScheme.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          domain['label']!,
-                          style: theme.textTheme.bodyMedium,
+                        Icon(
+                          Icons.shield_moon,
+                          size: 22,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            showResult
+                                ? 'Compliance Matrix Generated'
+                                : showLoading
+                                ? 'Generating...'
+                                : showCancelled
+                                ? 'Generation Cancelled'
+                                : showError
+                                ? 'Generation Failed'
+                                : 'New Assessment Matrix',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: _tryClose,
+                          visualDensity: VisualDensity.compact,
+                          tooltip: gen.isLoading
+                              ? 'Cancel generation first'
+                              : 'Close',
                         ),
                       ],
                     ),
-                  );
-                }).toList(),
-                onChanged: isLoading
-                    ? null
-                    : (value) {
-                        if (value != null) {
-                          setState(() => _selectedDomain = value);
-                        }
-                      },
-                dropdownColor: theme.colorScheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProblemCountRow(ThemeData theme, bool isLoading) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 72,
-          child: Text(
-            'Problems',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              IconButton(
-                icon: Icon(
-                  Icons.remove_circle_outline,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
-                onPressed: (isLoading || _problemCount <= 1)
-                    ? null
-                    : () => setState(() => _problemCount--),
-                visualDensity: VisualDensity.compact,
-              ),
-              SizedBox(
-                width: 40,
-                child: Text(
-                  '$_problemCount',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.primary,
                   ),
-                ),
-              ),
-              IconButton(
-                icon: Icon(
-                  Icons.add_circle_outline,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
-                onPressed: (isLoading || _problemCount >= 20)
-                    ? null
-                    : () => setState(() => _problemCount++),
-                visualDensity: VisualDensity.compact,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(
-                    context,
-                  ).copyWith(activeTrackColor: theme.colorScheme.primary),
-                  child: Slider(
-                    value: _problemCount.toDouble(),
-                    min: 1,
-                    max: 20,
-                    divisions: 19,
-                    onChanged: isLoading
-                        ? null
-                        : (v) => setState(() => _problemCount = v.round()),
+                  const Divider(height: 1),
+                  // Body
+                  Expanded(
+                    child: showLoading
+                        ? _buildLoadingState(theme)
+                        : showCancelled
+                        ? _buildCancelledState(theme)
+                        : showError
+                        ? _buildErrorState(theme, gen)
+                        : showResult
+                        ? _buildResultState(theme, gen.matrix!)
+                        : _buildConfigContent(theme),
                   ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDifficultySliders(ThemeData theme, bool isLoading) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const SizedBox(width: 72),
-            // Show distribution summary
-            Expanded(
-              child: Text(
-                'Difficulty: ${(_beginnerWeight * 100).round()}% easy · '
-                '${(_intermediateWeight * 100).round()}% med · '
-                '${(_advancedWeight * 100).round()}% hard',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        _buildDifficultySlider(
-          theme,
-          'Easy',
-          _beginnerWeight,
-          Colors.green,
-          isLoading,
-          (v) => setState(() => _beginnerWeight = v),
-        ),
-        _buildDifficultySlider(
-          theme,
-          'Medium',
-          _intermediateWeight,
-          Colors.orange,
-          isLoading,
-          (v) => setState(() => _intermediateWeight = v),
-        ),
-        _buildDifficultySlider(
-          theme,
-          'Hard',
-          _advancedWeight,
-          Colors.red,
-          isLoading,
-          (v) => setState(() => _advancedWeight = v),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDifficultySlider(
-    ThemeData theme,
-    String label,
-    double value,
-    Color color,
-    bool isLoading,
-    ValueChanged<double> onChanged,
-  ) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 72,
-          child: Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: color,
-              thumbColor: color,
-              inactiveTrackColor: color.withValues(alpha: 0.15),
-            ),
-            child: Slider(
-              value: value,
-              min: 0,
-              max: 1,
-              divisions: 10,
-              onChanged: isLoading
-                  ? null
-                  : (v) {
-                      // Enforce minimum 10% per tier
-                      final clamped = v.clamp(
-                        _difficultyFloor,
-                        1.0 - _difficultyFloor * 2,
-                      ); // leave room for the other two
-                      onChanged(clamped);
-                    },
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 36,
-          child: Text(
-            '${(value * 100).round()}%',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildKeywordHints(ThemeData theme) {
-    // Look up domain-specific keywords, fall back to generic guidance.
-    final keywords = _domainKeywords[_selectedDomain] ?? _fallbackKeywords();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.lightbulb_outline,
-            size: 14,
-            color: theme.colorScheme.tertiary,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                children: [
-                  TextSpan(
-                    text: 'Include keywords like: ',
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  TextSpan(text: keywords),
                 ],
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  String _fallbackKeywords() =>
-      'assessment type (MCQ · coding · essay · interactive) · '
-      'target skills · role-specific competencies · scenario-based problems · '
-      'knowledge areas · difficulty distribution';
-
-  // ── Prompt input ───────────────────────────────────────────────────────────
-  Widget _buildPromptInput(ThemeData theme, bool isLoading) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: TextField(
-        controller: _promptController,
-        enabled: !isLoading,
-        minLines: 2,
-        maxLines: 4,
-        textInputAction: TextInputAction.send,
-        onSubmitted: isLoading ? null : (_) => _onGenerate(),
-        decoration: InputDecoration(
-          hintText:
-              'e.g. "Create an assessment covering core competencies, '
-              'scenario-based problems, and practical skill evaluation"',
-          hintMaxLines: 2,
-          filled: true,
-          fillColor: theme.colorScheme.surfaceContainerHighest,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          suffixIcon: isLoading
-              ? null
-              : Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.send_rounded,
-                      color: theme.colorScheme.primary,
-                    ),
-                    tooltip: 'Generate',
-                    onPressed: _onGenerate,
-                  ),
-                ),
         ),
       ),
     );
   }
 
-  // ── Body ───────────────────────────────────────────────────────────────────
-  Widget _buildBody(ThemeData theme, GenerateProvider gen) {
-    // ── Loading state ────────────────────────────────────────────────────
-    if (gen.isLoading) {
-      return _buildLoadingState(theme);
-    }
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Config Page
+  // ═════════════════════════════════════════════════════════════════════════════
 
-    // ── Cancelled state with resume ─────────────────────────────────────
-    if (gen.isCancelled) {
-      return _buildCancelledState(theme, gen);
-    }
-
-    // ── Error state with manual retry ────────────────────────────────────
-    if (gen.error != null) {
-      return _buildErrorState(theme, gen);
-    }
-
-    // ── Result state ─────────────────────────────────────────────────────
-    if (gen.suite != null) {
-      return _buildResultState(theme, gen.suite!);
-    }
-
-    // ── Empty / initial state ────────────────────────────────────────────
-    return _buildEmptyState(theme);
+  Widget _buildConfigContent(ThemeData theme) {
+    return StatefulBuilder(
+      builder: (sbCtx, setSheetState) {
+        return ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          children: [
+            _buildSheetLabel(theme, 'Target System', Icons.dns_outlined),
+            const SizedBox(height: 8),
+            ..._targetSystemOptions.where((d) => d['value']!.isNotEmpty).map((
+              sys,
+            ) {
+              final value = sys['value']!;
+              final icon = _targetSystemIcons[value] ?? Icons.shield;
+              final isSelected = _selectedTargetSystem == value;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: ChoiceChip(
+                  avatar: Icon(
+                    icon,
+                    size: 16,
+                    color: isSelected
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.primary,
+                  ),
+                  label: Text(sys['label']!),
+                  selected: isSelected,
+                  onSelected: (_) {
+                    setState(() => _selectedTargetSystem = value);
+                    setSheetState(() {});
+                  },
+                ),
+              );
+            }),
+            const SizedBox(height: 16),
+            _buildSheetLabel(
+              theme,
+              'Threat Vectors',
+              Icons.bug_report_outlined,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  icon: Icon(
+                    Icons.remove_circle_outline,
+                    color: theme.colorScheme.primary,
+                  ),
+                  onPressed: _vectorCount <= 1
+                      ? null
+                      : () {
+                          setState(() => _vectorCount--);
+                          setSheetState(() {});
+                        },
+                ),
+                Container(
+                  width: 48,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$_vectorCount',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.add_circle_outline,
+                    color: theme.colorScheme.primary,
+                  ),
+                  onPressed: _vectorCount >= 20
+                      ? null
+                      : () {
+                          setState(() => _vectorCount++);
+                          setSheetState(() {});
+                        },
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Slider(
+                    value: _vectorCount.toDouble(),
+                    min: 1,
+                    max: 20,
+                    divisions: 19,
+                    onChanged: (v) {
+                      setState(() => _vectorCount = v.round());
+                      setSheetState(() {});
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildSheetLabel(theme, 'Risk Distribution Weights', Icons.tune),
+            const SizedBox(height: 8),
+            _buildSheetRiskSlider(
+              theme,
+              'Routine',
+              _routineWeight,
+              Colors.green,
+              (v) {
+                setState(() => _routineWeight = v);
+                setSheetState(() {});
+              },
+            ),
+            _buildSheetRiskSlider(
+              theme,
+              'Elevated',
+              _elevatedWeight,
+              Colors.orange,
+              (v) {
+                setState(() => _elevatedWeight = v);
+                setSheetState(() {});
+              },
+            ),
+            _buildSheetRiskSlider(
+              theme,
+              'Critical',
+              _criticalWeight,
+              Colors.red,
+              (v) {
+                setState(() => _criticalWeight = v);
+                setSheetState(() {});
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildSheetLabel(theme, 'Audit Prompt', Icons.edit_note),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _promptController,
+              minLines: 2,
+              maxLines: 5,
+              decoration: InputDecoration(
+                hintText:
+                    'e.g. "Audit the SWIFT Gateway and Core Trading Ledger for AML and SOX compliance violations"',
+                hintMaxLines: 2,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      _promptController.clear();
+                      setState(() {
+                        _selectedTargetSystem = '';
+                        _vectorCount = 1;
+                        _routineWeight = 0.3;
+                        _elevatedWeight = 0.5;
+                        _criticalWeight = 0.2;
+                      });
+                    },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Reset'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: _selectedTargetSystem.isEmpty
+                        ? null
+                        : _onGenerate,
+                    icon: const Icon(Icons.shield, size: 18),
+                    label: const Text('Generate Matrix'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                      backgroundColor: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Loading State
+  // ═════════════════════════════════════════════════════════════════════════════
+
   Widget _buildLoadingState(ThemeData theme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(
-            width: 48,
-            height: 48,
+            width: 56,
+            height: 56,
             child: CircularProgressIndicator(strokeWidth: 3),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Text(
-            _selectedDomain.isEmpty
-                ? 'Generating $_problemCount problems…'
-                : 'Generating $_problemCount problems for ${_domainOptions.firstWhere((d) => d['value'] == _selectedDomain, orElse: () => const {'label': ''})['label']}…',
+            'Generating compliance matrix...',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: theme.colorScheme.onSurface,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            'This may take 10–30 seconds. Gemini is crafting a structured assessment.',
-            textAlign: TextAlign.center,
+            'This may take 10-30 seconds.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
           OutlinedButton.icon(
-            onPressed: () => _confirmCancel(theme),
+            onPressed: () => _confirmCancel(),
             icon: const Icon(Icons.stop_circle_outlined, size: 18),
             label: const Text('Cancel Generation'),
             style: OutlinedButton.styleFrom(
               foregroundColor: theme.colorScheme.error,
-              side: BorderSide(
-                color: theme.colorScheme.error.withValues(alpha: 0.5),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
+              side: BorderSide(color: theme.colorScheme.error),
             ),
           ),
         ],
@@ -1094,61 +904,57 @@ engineering problems unless the domain is Software Engineering.''';
     );
   }
 
-  // ── Cancelled (resume prompt) ──────────────────────────────────────────────
-  Widget _buildCancelledState(ThemeData theme, GenerateProvider gen) {
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Cancelled State
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  Widget _buildCancelledState(ThemeData theme) {
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.pause_circle_outline,
-              size: 48,
-              color: theme.colorScheme.tertiary,
+              Icons.pause_circle_outlined,
+              size: 56,
+              color: theme.colorScheme.error,
             ),
             const SizedBox(height: 16),
             Text(
               'Generation Cancelled',
               style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.tertiary,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Your prompt and settings have been saved. You can resume generation at any time.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
+              'Your prompt and settings have been saved. '
+              'You can resume or start a new generation.',
+              style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => gen.resume(),
-              icon: const Icon(Icons.play_arrow_rounded, size: 18),
-              label: const Text('Resume Generation'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.tertiary,
-                foregroundColor: theme.colorScheme.onTertiary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 12,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    context.read<GenerateProvider>().reset();
+                    setState(() => _hasDeployed = false);
+                  },
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Start New'),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: () => context.read<GenerateProvider>().resume(),
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('Resume'),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => gen.reset(),
-              child: Text(
-                'Start Fresh',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
+              ],
             ),
           ],
         ),
@@ -1156,54 +962,53 @@ engineering problems unless the domain is Software Engineering.''';
     );
   }
 
-  // ── Error + Retry ──────────────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Error State
+  // ═════════════════════════════════════════════════════════════════════════════
+
   Widget _buildErrorState(ThemeData theme, GenerateProvider gen) {
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.cloud_off_rounded,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 56, color: theme.colorScheme.error),
             const SizedBox(height: 16),
             Text(
               'Generation Failed',
               style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.error,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Text(
-                gen.error!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+            Text(
+              gen.error ?? 'An unknown error occurred.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: gen.canManualRetry ? _onRetry : null,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 12,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    gen.reset();
+                    setState(() => _hasDeployed = false);
+                  },
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Start New'),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+                const SizedBox(width: 12),
+                if (gen.canManualRetry)
+                  FilledButton.icon(
+                    onPressed: () => gen.retry(),
+                    icon: const Icon(Icons.replay, size: 18),
+                    label: const Text('Retry'),
+                  ),
+              ],
             ),
           ],
         ),
@@ -1211,154 +1016,809 @@ engineering problems unless the domain is Software Engineering.''';
     );
   }
 
-  // ── Result ─────────────────────────────────────────────────────────────────
-  Widget _buildResultState(ThemeData theme, GeneratedSuite suite) {
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Result State
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  Widget _buildResultState(ThemeData theme, ComplianceMatrix matrix) {
     return ListView(
-      controller: _scrollController,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
-        // Suite card
-        _SuiteOverviewCard(suite: suite),
+        // ── Metadata card ──────────────────────────────────────────────────
+        Card(
+          elevation: 0,
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Compliance Matrix Ready',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _metadataRow(theme, 'Matrix ID', matrix.metadata.matrixId),
+                _metadataRow(theme, 'Model', matrix.metadata.modelVersion),
+                _metadataRow(
+                  theme,
+                  'Generated',
+                  _formatTimestamp(matrix.metadata.generatedAt),
+                ),
+                _metadataRow(
+                  theme,
+                  'Tokens',
+                  '${matrix.metadata.tokenUsage.totalTokens} total '
+                      '(${matrix.metadata.tokenUsage.promptTokens} prompt + '
+                      '${matrix.metadata.tokenUsage.completionTokens} completion)',
+                ),
+                _metadataRow(
+                  theme,
+                  'Summary',
+                  '${matrix.targetSystems.length} system(s) · '
+                      '${matrix.regulatoryMandates.length} mandate(s) · '
+                      '${matrix.threatVectors.length} vector(s) · '
+                      '${matrix.auditTrailMatrices.length} audit trail(s)',
+                ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 16),
-        // Roles section
-        if (suite.roles.isNotEmpty) ...[
-          _SectionHeader(
-            title: 'Roles (${suite.roles.length})',
-            icon: Icons.badge,
-          ),
+
+        // ── Target Systems ─────────────────────────────────────────────────
+        if (matrix.targetSystems.isNotEmpty) ...[
+          _buildSheetLabel(theme, 'Target Systems', Icons.dns_outlined),
           const SizedBox(height: 8),
-          ...suite.roles.map((r) => _RoleCard(role: r)),
+          ...matrix.targetSystems.map(
+            (sys) => Card(
+              margin: const EdgeInsets.only(bottom: 6),
+              elevation: 0,
+              color: theme.colorScheme.surfaceContainerLow,
+              child: ListTile(
+                leading: Icon(
+                  _targetSystemIcons[sys.systemId] ?? Icons.shield,
+                  size: 20,
+                  color: _criticalityColor(sys.criticalityTier, theme),
+                ),
+                title: Text(
+                  sys.title,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  '${sys.criticalityTier.toUpperCase()} · '
+                  '${sys.requiredMandateIds.length} mandate(s)',
+                  style: theme.textTheme.labelSmall,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
         ],
-        // Competencies section
-        if (suite.competencies.isNotEmpty) ...[
-          _SectionHeader(
-            title: 'Competencies (${suite.competencies.length})',
-            icon: Icons.checklist,
-          ),
+
+        // ── Regulatory Mandates ────────────────────────────────────────────
+        if (matrix.regulatoryMandates.isNotEmpty) ...[
+          _buildSheetLabel(theme, 'Regulatory Mandates', Icons.gavel),
           const SizedBox(height: 8),
-          ...suite.competencies.map((c) => _CompetencyCard(competency: c)),
+          ...matrix.regulatoryMandates.map(
+            (mandate) => Card(
+              margin: const EdgeInsets.only(bottom: 6),
+              elevation: 0,
+              color: theme.colorScheme.surfaceContainerLow,
+              child: ExpansionTile(
+                leading: const Icon(
+                  Icons.policy,
+                  size: 20,
+                  color: Colors.indigo,
+                ),
+                title: Text(
+                  mandate.name,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  'Weight: ${(mandate.weight * 100).round()}%',
+                  style: theme.textTheme.labelSmall,
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          mandate.description,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (mandate.subMandates.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          ...mandate.subMandates.map(
+                            (sub) => Padding(
+                              padding: const EdgeInsets.only(left: 12, top: 4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('• ', style: theme.textTheme.bodySmall),
+                                  Expanded(
+                                    child: Text(
+                                      '${sub.name} (${(sub.weight * 100).round()}%): ${sub.description}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
         ],
-        // Problems section
-        if (suite.problems.isNotEmpty) ...[
-          _SectionHeader(
-            title: 'Problems (${suite.problems.length})',
-            icon: Icons.quiz,
-          ),
+
+        // ── Threat Vectors ─────────────────────────────────────────────────
+        _buildSheetLabel(theme, 'Threat Vectors', Icons.bug_report_outlined),
+        const SizedBox(height: 8),
+        ...matrix.threatVectors.map(
+          (vector) => _buildVectorCard(theme, vector),
+        ),
+        const SizedBox(height: 16),
+
+        // ── Audit Trail Matrices ───────────────────────────────────────────
+        if (matrix.auditTrailMatrices.isNotEmpty) ...[
+          _buildSheetLabel(theme, 'Audit Trail Matrices', Icons.track_changes),
           const SizedBox(height: 8),
-          ...suite.problems.map((p) => _ProblemCard(problem: p)),
+          ...matrix.auditTrailMatrices.map(
+            (trail) => Card(
+              margin: const EdgeInsets.only(bottom: 6),
+              elevation: 0,
+              color: theme.colorScheme.surfaceContainerLow,
+              child: ExpansionTile(
+                leading: const Icon(
+                  Icons.track_changes,
+                  size: 20,
+                  color: Colors.teal,
+                ),
+                title: Text(
+                  trail.trailName,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  'Threshold: ${trail.escalationThreshold} · '
+                  '${trail.logSources.length} source(s)',
+                  style: theme.textTheme.labelSmall,
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          trail.description,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Severity: ${trail.severityMapping}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Log Sources: ${trail.logSources.join(", ")}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (trail.detectionRules.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Detection Rules:',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          ...trail.detectionRules.map(
+                            (rule) => Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                '• $rule',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
         ],
-        // Metadata footer
-        _MetadataFooter(metadata: suite.metadata),
+
+        // ── Deploy button ──────────────────────────────────────────────────
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: FilledButton.icon(
+            onPressed: _hasDeployed ? null : () => _onDeploy(matrix),
+            icon: Icon(
+              _hasDeployed ? Icons.check_circle : Icons.rocket_launch,
+              size: 20,
+            ),
+            label: Text(_hasDeployed ? 'Deployed' : 'Deploy to Session'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _hasDeployed
+                  ? Colors.green
+                  : theme.colorScheme.primary,
+              textStyle: theme.textTheme.titleSmall,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Generate new button
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              context.read<GenerateProvider>().reset();
+              setState(() => _hasDeployed = false);
+            },
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Generate New Matrix'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Close button
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _tryClose,
+            icon: const Icon(Icons.close, size: 18),
+            label: const Text('Close'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
       ],
     );
   }
 
-  // ── Empty ──────────────────────────────────────────────────────────────────
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.auto_awesome,
-                size: 48,
-                color: theme.colorScheme.outline,
+  // ── Deploy ────────────────────────────────────────────────────────────────
+
+  void _onDeploy(ComplianceMatrix matrix) async {
+    final identity = context.read<IdentityProvider>();
+    final employeeId = identity.employeeId;
+    if (employeeId == null || employeeId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No employee identity found. Please set up your identity first.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Pick the best matrix ID from audit trail or metadata
+    final matrixId = matrix.auditTrailMatrices.isNotEmpty
+        ? matrix.auditTrailMatrices.first.matrixId
+        : matrix.metadata.matrixId;
+    // Resolve the actual target-system ID (swift-gateway, core-ledger, etc.)
+    // and a human-readable label for the dialog.
+    final String targetSystemValue;
+    final String targetSystemLabel;
+
+    if (matrix.targetSystems.isNotEmpty) {
+      final first = matrix.targetSystems.first;
+      targetSystemValue = first.systemId.isNotEmpty
+          ? first.systemId
+          : first.title;
+      targetSystemLabel = first.title.isNotEmpty
+          ? first.title
+          : targetSystemValue;
+    } else {
+      // Use the value the user picked from the dropdown in the config step
+      targetSystemValue = _selectedTargetSystem.isNotEmpty
+          ? _selectedTargetSystem
+          : _targetSystemOptions
+                    .skip(1) // skip the placeholder
+                    .firstOrNull?['value'] ??
+                'core-banking';
+      // Look up the human-readable label for the dialog
+      targetSystemLabel =
+          _targetSystemOptions.firstWhere(
+            (d) => d['value'] == targetSystemValue,
+            orElse: () => {'label': targetSystemValue},
+          )['label'] ??
+          targetSystemValue;
+    }
+
+    // Default suggestion for session ID
+    final defaultSuggestion =
+        'session_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+
+    // Capture providers before async gap
+    final guardian = context.read<GuardianProvider>();
+    final review = context.read<ReviewProvider>();
+
+    // Show deploy dialog with pre-filled fields + manual session ID entry
+    final sessionId = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _DeployDialog(
+        employeeId: employeeId,
+        matrixId: matrixId,
+        targetSystem: targetSystemLabel,
+        defaultSessionId: defaultSuggestion,
+      ),
+    );
+
+    if (sessionId == null || sessionId.isEmpty) return; // User cancelled
+
+    try {
+      final session = await guardian.deployGuardrail(
+        employeeId: employeeId,
+        sessionId: sessionId,
+        matrixId: matrixId,
+        targetSystem: targetSystemValue,
+      );
+
+      if (session.sessionId.isNotEmpty) {
+        // Refresh sessions list
+        await review.loadSessions();
+
+        setState(() => _hasDeployed = true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Compliance matrix deployed — Session ${session.sessionId}',
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Autonomous Test Suite Generator',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Select a domain, set problem count and difficulty, then describe '
-                'the skills and competencies you want to assess.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.7),
-                ),
-              ),
-              const SizedBox(height: 20),
-              // ── Quick example hints ─────────────────────────────────
-              _buildExampleChips(theme),
-            ],
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deploy failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── Vector card (full detail) ─────────────────────────────────────────────
+
+  Widget _buildVectorCard(ThemeData theme, ThreatVector vector) {
+    final severityColor = vector.severityLevel == 'critical'
+        ? Colors.red
+        : vector.severityLevel == 'elevated'
+        ? Colors.orange
+        : Colors.green;
+    final vectorTypeIcon = vector.vectorType == 'code_injection'
+        ? Icons.code
+        : vector.vectorType == 'data_exfiltration'
+        ? Icons.upload_file
+        : vector.vectorType == 'unauthorized_access'
+        ? Icons.vpn_key
+        : vector.vectorType == 'policy_bypass'
+        ? Icons.block
+        : Icons.bug_report;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerLow,
+      child: ExpansionTile(
+        leading: Icon(vectorTypeIcon, color: severityColor, size: 20),
+        title: Text(
+          vector.title,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
           ),
         ),
+        subtitle: Row(
+          children: [
+            Text(
+              vector.severityLevel.toUpperCase(),
+              style: theme.textTheme.labelSmall?.copyWith(color: severityColor),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '| Window: ${vector.auditWindowSeconds}s',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Type & language badge
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Chip(
+                      avatar: const Icon(Icons.category, size: 14),
+                      label: Text(
+                        vector.vectorType,
+                        style: theme.textTheme.labelSmall,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor:
+                          theme.colorScheme.surfaceContainerHighest,
+                    ),
+                    if (vector.language != null && vector.language!.isNotEmpty)
+                      Chip(
+                        avatar: const Icon(Icons.code, size: 14),
+                        label: Text(
+                          vector.language!,
+                          style: theme.textTheme.labelSmall,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Body
+                Text(
+                  vector.body,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                // Starter code
+                if (vector.starterCode != null &&
+                    vector.starterCode!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Starter Code',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      vector.starterCode!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+                // Audit metadata
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.timer,
+                      size: 14,
+                      color: theme.colorScheme.outline,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Audit window: ${vector.auditWindowSeconds}s',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Icon(
+                      Icons.speed,
+                      size: 14,
+                      color: theme.colorScheme.outline,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Max risk: ${vector.maxRiskScore}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+                // Expected answer
+                if (vector.expectedAnswer != null &&
+                    vector.expectedAnswer!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Expected: ${vector.expectedAnswer}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+                // Penetration scenarios
+                if (vector.scenarios.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Penetration Scenarios (${vector.scenarios.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...vector.scenarios.map(
+                    (scenario) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: scenario.isExample
+                                ? Colors.blue.withValues(alpha: 0.3)
+                                : Colors.grey.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (scenario.isExample)
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.lightbulb_outline,
+                                    size: 14,
+                                    color: Colors.blue,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Example',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (scenario.input.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Input: ${scenario.input}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                            if (scenario.expectedOutput.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                'Expected: ${scenario.expectedOutput}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: Colors.green,
+                                ),
+                              ),
+                            ],
+                            if (scenario.explanation.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                scenario.explanation,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontStyle: FontStyle.italic,
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                // Mitigation options
+                if (vector.options.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Mitigation Options (${vector.options.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...vector.options.map(
+                    (option) => Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: option.isCorrectMitigation
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(6),
+                        border: option.isCorrectMitigation
+                            ? Border.all(
+                                color: Colors.green.withValues(alpha: 0.4),
+                              )
+                            : null,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            option.isCorrectMitigation
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 14,
+                            color: option.isCorrectMitigation
+                                ? Colors.green
+                                : theme.colorScheme.outline,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  option.text,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontWeight: option.isCorrectMitigation
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    color: option.isCorrectMitigation
+                                        ? Colors.green.shade700
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                if (option.rationale != null &&
+                                    option.rationale!.isNotEmpty)
+                                  Text(
+                                    option.rationale!,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontStyle: FontStyle.italic,
+                                      fontSize: 10,
+                                      color: theme.colorScheme.outline,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildExampleChips(ThemeData theme) {
-    // No chips when no domain is selected
-    if (_selectedDomain.isEmpty) return const SizedBox.shrink();
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Sheet Helpers
+  // ═════════════════════════════════════════════════════════════════════════════
 
-    // Domain-specific examples; fallback to empty list when missing
-    final examples = _domainExampleChips[_selectedDomain] ?? <String>[];
-
-    if (examples.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 12),
-        Text(
-          'Example prompts for ${_domainOptions.firstWhere((d) => d['value'] == _selectedDomain)['label']}:',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline.withValues(alpha: 0.7),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          alignment: WrapAlignment.center,
-          children: examples.map((label) {
-            return ActionChip(
-              avatar: Icon(
-                Icons.push_pin,
-                size: 12,
-                color: theme.colorScheme.primary,
+  Widget _metadataRow(ThemeData theme, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+                fontWeight: FontWeight.w600,
               ),
-              label: Text(label, style: theme.textTheme.labelSmall),
-              visualDensity: VisualDensity.compact,
-              onPressed: () {
-                _promptController.text = label;
-              },
-            );
-          }).toList(),
-        ),
-      ],
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════
-// Sub-widgets: Result cards
-// ═══════════════════════════════════════════════════════════════════════
+  String _formatTimestamp(String timestamp) {
+    try {
+      final dt = DateTime.parse(timestamp);
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      final M = dt.month.toString().padLeft(2, '0');
+      final d = dt.day.toString().padLeft(2, '0');
+      return '$d/$M/${dt.year} $h:$m';
+    } catch (_) {
+      return timestamp;
+    }
+  }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  const _SectionHeader({required this.title, required this.icon});
+  Color _criticalityColor(String tier, ThemeData theme) {
+    switch (tier.toLowerCase()) {
+      case 'critical':
+        return Colors.red;
+      case 'elevated':
+        return Colors.orange;
+      case 'routine':
+        return Colors.green;
+      default:
+        return theme.colorScheme.primary;
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _buildSheetLabel(ThemeData theme, String label, IconData icon) {
     return Row(
       children: [
         Icon(icon, size: 18, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
         Text(
-          title,
-          style: theme.textTheme.labelLarge?.copyWith(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
             color: theme.colorScheme.primary,
             fontWeight: FontWeight.w600,
           ),
@@ -1366,264 +1826,70 @@ class _SectionHeader extends StatelessWidget {
       ],
     );
   }
-}
 
-class _SuiteOverviewCard extends StatelessWidget {
-  final GeneratedSuite suite;
-  const _SuiteOverviewCard({required this.suite});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final meta = suite.metadata;
-    // Derive a human-readable title from the first problem or competency
-    final derivedTitle = suite.problems.isNotEmpty
-        ? suite.problems.first.title
-        : (suite.competencies.isNotEmpty ? suite.competencies.first.name : '');
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.primaryContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              derivedTitle.isNotEmpty ? derivedTitle : 'Untitled Suite',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer,
-                fontWeight: FontWeight.w600,
+  Widget _buildSheetRiskSlider(
+    ThemeData theme,
+    String label,
+    double value,
+    Color color,
+    ValueChanged<double> onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: color,
+                thumbColor: color,
+                inactiveTrackColor: color.withValues(alpha: 0.15),
+              ),
+              child: Slider(
+                value: value,
+                min: 0,
+                max: 1,
+                divisions: 10,
+                onChanged: (v) {
+                  final clamped = v.clamp(_riskFloor, 1.0 - _riskFloor * 2);
+                  onChanged(clamped);
+                },
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Suite ID: ${meta.suiteId}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer.withValues(
-                  alpha: 0.7,
-                ),
+          ),
+          SizedBox(
+            width: 36,
+            child: Text(
+              '${(value * 100).round()}%',
+              style: theme.textTheme.labelSmall?.copyWith(
                 fontFamily: 'monospace',
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleCard extends StatelessWidget {
-  final RoleDescriptor role;
-  const _RoleCard({required this.role});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.secondaryContainer,
-          child: Text(
-            role.seniorityLevel.substring(0, 1).toUpperCase(),
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSecondaryContainer,
-            ),
           ),
-        ),
-        title: Text(role.title, style: theme.textTheme.bodyMedium),
-        subtitle: Text(
-          role.seniorityLevel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall,
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      ),
-    );
-  }
-}
-
-class _CompetencyCard extends StatelessWidget {
-  final CompetencyTree competency;
-  const _CompetencyCard({required this.competency});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        leading: Icon(Icons.star, size: 20, color: theme.colorScheme.secondary),
-        title: Text(competency.name, style: theme.textTheme.bodyMedium),
-        subtitle: competency.description.isNotEmpty
-            ? Text(
-                competency.description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
-              )
-            : null,
-        trailing: Text(
-          '${(competency.weight * 100).round()}%',
-          style: theme.textTheme.labelSmall?.copyWith(fontFamily: 'monospace'),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      ),
-    );
-  }
-}
-
-class _ProblemCard extends StatelessWidget {
-  final GeneratedProblem problem;
-  const _ProblemCard({required this.problem});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final typeColor = switch (problem.problemType) {
-      'coding' => Colors.teal,
-      'mcq' => Colors.orange,
-      'design' => Colors.purple,
-      'essay' => Colors.indigo,
-      'interactive' => Colors.blue,
-      _ => theme.colorScheme.secondary,
-    };
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: typeColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            problem.problemType.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              color: typeColor,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        title: Text(
-          problem.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium,
-        ),
-        subtitle: Row(
-          children: [
-            Icon(Icons.timer, size: 14, color: theme.colorScheme.outline),
-            const SizedBox(width: 4),
-            Text(
-              '${problem.timeAllocationSeconds ~/ 60} min',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(width: 12),
-            Icon(Icons.science, size: 14, color: theme.colorScheme.outline),
-            const SizedBox(width: 4),
-            Text(
-              '${problem.testCases.length} tests',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      ),
-    );
-  }
-}
-
-class _MetadataFooter extends StatefulWidget {
-  final SuiteMetadata metadata;
-  const _MetadataFooter({required this.metadata});
-
-  @override
-  State<_MetadataFooter> createState() => _MetadataFooterState();
-}
-
-class _MetadataFooterState extends State<_MetadataFooter> {
-  /// Holds the real generation completion timestamp (set once on first build).
-  DateTime? _realGeneratedAt;
-
-  @override
-  void initState() {
-    super.initState();
-    _realGeneratedAt = DateTime.now();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final now = _realGeneratedAt!;
-
-    // Format: "2026-05-30 13:08 PM UTC+5:00"
-    final hour = now.hour > 12
-        ? now.hour - 12
-        : (now.hour == 0 ? 12 : now.hour);
-    final period = now.hour >= 12 ? 'PM' : 'AM';
-    final offset = now.timeZoneOffset;
-    final sign = offset.isNegative ? '-' : '+';
-    final offsetAbs = offset.abs();
-    final tzLabel =
-        'UTC$sign${offsetAbs.inHours.toString().padLeft(2, '0')}:'
-        '${offsetAbs.inMinutes.remainder(60).toString().padLeft(2, '0')}';
-    final formatted =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')} '
-        '${hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')} $period '
-        '$tzLabel';
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 4,
-        children: [
-          _MetaChip(Icons.model_training, widget.metadata.modelVersion),
-          _MetaChip(
-            Icons.memory,
-            '${widget.metadata.tokenUsage.totalTokens} tokens',
-          ),
-          _MetaChip(Icons.calendar_today, formatted),
-          _MetaChip(Icons.info, 'v1.0'),
         ],
       ),
-    );
-  }
-}
-
-class _MetaChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _MetaChip(this.icon, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 12, color: theme.colorScheme.outline),
-        const SizedBox(width: 4),
-        Text(label, style: theme.textTheme.labelSmall),
-      ],
     );
   }
 }

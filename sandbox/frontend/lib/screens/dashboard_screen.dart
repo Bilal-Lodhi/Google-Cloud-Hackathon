@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../providers/theme_provider.dart';
 import '../providers/health_provider.dart';
-import '../providers/guardian_provider.dart';
-import '../providers/review_provider.dart';
 import '../providers/identity_provider.dart';
-import '../widgets/code_workspace_panel.dart';
+import '../providers/review_provider.dart';
 import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
+import '../widgets/code_workspace_panel.dart';
 
-/// ─── Cerberus AI — Dashboard Screen (Split-View Analytical Review Log) ──────
-/// Uses LayoutBuilder to decide between a side-by-side Row (wide screens) or
-/// a TabBar / vertical stack (narrow screens). Displays candidate code
-/// (left/near) and security metrics timeline (right/far).
+/// ─── Cerberus FinSec — Dashboard Screen ───────────────────────────────────────
+/// Root shell after identity setup. Provides:
+///   - AppBar with operator identity badge
+///   - Compliance Matrix button that opens a bottom sheet (via [ComplianceSheet])
+///   - Left navigation drawer (active audit sessions)
+///   - Wide layout: Code Workspace | Security Metrics
+///   - Narrow layout: Tab-based switching between Terminal & Telemetry
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -29,19 +30,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initialLoad();
-    });
-  }
+    _tabController = TabController(length: 2, vsync: this);
 
-  Future<void> _initialLoad() async {
-    final healthProvider = context.read<HealthProvider>();
-    final reviewProvider = context.read<ReviewProvider>();
-    if (!mounted) return;
-    await healthProvider.checkHealth();
-    if (!mounted) return;
-    await reviewProvider.loadSessions();
+    // Load initial data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final review = context.read<ReviewProvider>();
+      review.loadSessions();
+      final health = context.read<HealthProvider>();
+      health.checkHealth();
+    });
   }
 
   @override
@@ -52,161 +49,118 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final identity = context.watch<IdentityProvider>();
+
     return Scaffold(
-      appBar: _buildAppBar(context),
-      drawer: _buildDrawer(context),
+      // ── App Bar ──────────────────────────────────────────────────────────
+      appBar: AppBar(
+        title: Text(
+          'Cerberus FinSec',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        actions: [
+          // Compliance Matrix button
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: TextButton.icon(
+              onPressed: () => ComplianceSheet.show(context),
+              icon: Icon(
+                Icons.gavel,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              label: Text('Compliance', style: theme.textTheme.labelMedium),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.primary,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+          // Operator identity chip
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Chip(
+              avatar: Icon(
+                Icons.shield_moon,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              label: Text(
+                identity.displayName ?? 'Operator',
+                style: theme.textTheme.labelMedium,
+              ),
+              backgroundColor: theme.colorScheme.primaryContainer,
+              side: BorderSide.none,
+            ),
+          ),
+        ],
+      ),
+      // ── Navigation Drawer (Left) ────────────────────────────────────────
+      drawer: _buildDrawer(theme),
+      // ── Body ─────────────────────────────────────────────────────────────
       body: LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth >= 900) {
             return _buildWideLayout();
-          } else {
-            return _buildNarrowLayout();
           }
+          return _buildNarrowLayout();
         },
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    final theme = Theme.of(context);
-    final themeProvider = context.watch<ThemeProvider>();
-    final guardian = context.watch<GuardianProvider>();
+  // ── Drawer ─────────────────────────────────────────────────────────────────
 
-    return AppBar(
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.security, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          const Text('Cerberus AI — Review Log'),
-        ],
-      ),
-      actions: [
-        // Guardian streaming indicator
-        if (guardian.isStreaming)
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(strokeWidth: 1.5),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Guardian Active',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        // Dark mode toggle — uses actual rendered brightness so the icon
-        // is correct even when themeMode is "system" and follows the OS.
-        IconButton(
-          icon: Icon(
-            Theme.of(context).brightness == Brightness.dark
-                ? Icons.light_mode
-                : Icons.dark_mode,
-          ),
-          tooltip: Theme.of(context).brightness == Brightness.dark
-              ? 'Toggle light mode'
-              : 'Toggle dark mode',
-          onPressed: () => themeProvider.toggleDarkMode(),
-        ),
-        const SizedBox(width: 4),
-      ],
-    );
-  }
-
-  Widget _buildDrawer(BuildContext context) {
-    final theme = Theme.of(context);
-    final health = context.watch<HealthProvider>();
+  Widget _buildDrawer(ThemeData theme) {
     final review = context.watch<ReviewProvider>();
-    final identity = context.watch<IdentityProvider>();
+    final health = context.watch<HealthProvider>();
 
     return Drawer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DrawerHeader(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-            ),
+          // Drawer header
+          Container(
+            color: theme.colorScheme.primaryContainer,
+            padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.security,
-                      size: 36,
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                    const Spacer(),
-                    // ── Identity block (name → ID → role) ──────────────────
-                    if (identity.isIdentified)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisSize: MainAxisSize.min,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: 0.2,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.person,
-                                  size: 14,
-                                  color: theme.colorScheme.onPrimaryContainer,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  identity.displayName!,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
+                          Icon(
+                            Icons.verified_user,
+                            size: 28,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Active Audits',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.onPrimaryContainer,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 4),
                           Text(
-                            identity.candidateId!,
+                            '${review.sessions.length} session(s) monitored',
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onPrimaryContainer
-                                  .withValues(alpha: 0.7),
+                                  .withValues(alpha: 0.6),
                             ),
                           ),
-                          if (identity.role != null) ...[
-                            const SizedBox(height: 1),
-                            Text(
-                              identity.role!,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer
-                                    .withValues(alpha: 0.6),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
+                    ),
                     const SizedBox(width: 4),
-                    // ── Drawer close button ────────────────────────────────
+                    // Drawer close button
                     IconButton(
                       icon: Icon(
                         Icons.close,
@@ -228,14 +182,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Cerberus AI',
+                  'Cerberus FinSec',
                   style: theme.textTheme.titleLarge?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Text(
-                  'Agentic Assessment Platform',
+                  'Real-Time Insider Threat Guardian',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer.withValues(
                       alpha: 0.8,
@@ -279,10 +233,13 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
           const Divider(),
-          // Review records list
+          // Active audit sessions list
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('REVIEW RECORDS', style: theme.textTheme.labelSmall),
+            child: Text(
+              'ACTIVE AUDIT SESSIONS',
+              style: theme.textTheme.labelSmall,
+            ),
           ),
           Expanded(
             child: Builder(
@@ -307,7 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 if (review.sessions.isEmpty) {
                   return Center(
                     child: Text(
-                      'No review records',
+                      'No active audits',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
@@ -320,11 +277,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                     final session = review.sessions[index];
                     final isSelected =
                         review.selected?.sessionId == session.sessionId;
-                    final score = session.suspicionScore;
+                    final score = session.peakRiskScore;
+                    final statusText = session.alertTriggered
+                        ? '⚠ ALERT'
+                        : 'active';
                     return ListTile(
                       selected: isSelected,
                       leading: CircleAvatar(
-                        backgroundColor: _suspicionScoreColor(score, theme),
+                        backgroundColor: _riskScoreColor(score, theme),
                         radius: 14,
                         child: Text(
                           score.toStringAsFixed(0),
@@ -340,7 +300,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         style: theme.textTheme.bodyMedium,
                       ),
                       subtitle: Text(
-                        'Events: ${session.eventCount} | Status: ${session.status}',
+                        'Events: ${session.eventCount} | $statusText',
                         style: theme.textTheme.bodySmall,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -389,7 +349,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Row(
       children: [
-        // Left panel — Code workspace
+        // Left panel — Employee Terminal Workspace
         Expanded(
           flex: 5,
           child: Container(
@@ -401,24 +361,12 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: const CodeWorkspacePanel(),
           ),
         ),
-        // Right panel — Security metrics
+        // Right panel — Live Threat Telemetry
         Expanded(
           flex: 4,
           child: Container(
             color: theme.colorScheme.surface,
             child: const SecurityMetricsPanel(),
-          ),
-        ),
-        // Third panel — Generate (only on very wide screens)
-        Expanded(
-          flex: 4,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(color: theme.dividerColor, width: 1),
-              ),
-            ),
-            child: const GeneratePanel(),
           ),
         ),
       ],
@@ -436,26 +384,21 @@ class _DashboardScreenState extends State<DashboardScreen>
           labelColor: theme.colorScheme.primary,
           unselectedLabelColor: theme.colorScheme.outline,
           tabs: const [
-            Tab(icon: Icon(Icons.code), text: 'Code'),
-            Tab(icon: Icon(Icons.shield), text: 'Security'),
-            Tab(icon: Icon(Icons.auto_awesome), text: 'Generate'),
+            Tab(icon: Icon(Icons.terminal), text: 'Terminal'),
+            Tab(icon: Icon(Icons.shield), text: 'Telemetry'),
           ],
         ),
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: const [
-              CodeWorkspacePanel(),
-              SecurityMetricsPanel(),
-              GeneratePanel(),
-            ],
+            children: const [CodeWorkspacePanel(), SecurityMetricsPanel()],
           ),
         ),
       ],
     );
   }
 
-  Color _suspicionScoreColor(double score, ThemeData theme) {
+  Color _riskScoreColor(double score, ThemeData theme) {
     if (score >= 75) return Colors.red;
     if (score >= 40) return Colors.orange;
     return theme.colorScheme.primary;

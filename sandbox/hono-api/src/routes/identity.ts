@@ -2,7 +2,7 @@
  * Lightweight Identity Route — Hackathon Demo
  *
  * Provides ephemeral "identity" without authentication:
- *   POST /api/v1/identity/set   — Register a display name + candidate ID
+ *   POST /api/v1/identity/set   — Register a display name + employee ID
  *   GET  /api/v1/identity/me    — Retrieve current identity
  *
  * The "session token" is a UUID stored server-side in a simple Map.
@@ -22,14 +22,14 @@ const identityRouter = new Hono();
 
 /**
  * POST /api/v1/identity/set
- * Body: { displayName: string, candidateId: string, role?: string }
+ * Body: { displayName: string, employeeId: string, role?: string }
  * Returns an ephemeral session token.
  */
 identityRouter.post("/set", async (c) => {
   const body = await c.req.json();
 
   const displayName = (body["displayName"] as string)?.trim();
-  const candidateId = (body["candidateId"] as string)?.trim();
+  const employeeId = (body["employeeId"] as string)?.trim();
 
   if (!displayName || displayName.length === 0) {
     return c.json(
@@ -37,16 +37,16 @@ identityRouter.post("/set", async (c) => {
       400
     );
   }
-  if (!candidateId || candidateId.length === 0) {
+  if (!employeeId || employeeId.length === 0) {
     return c.json(
-      { success: false, error: "candidateId is required" },
+      { success: false, error: "employeeId is required" },
       400
     );
   }
 
   const identity: IdentityPayload = {
     displayName,
-    candidateId,
+    employeeId,
     role: (body["role"] as string | undefined)?.trim() || undefined,
   };
 
@@ -60,7 +60,7 @@ identityRouter.post("/set", async (c) => {
   };
 
   console.log(
-    `[identity] Registered → "${displayName}" (${candidateId}) token=${sessionToken.slice(0, 8)}...`
+    `[identity] Registered → "${displayName}" (${employeeId}) token=${sessionToken.slice(0, 8)}...`
   );
 
   return c.json(response, 201);

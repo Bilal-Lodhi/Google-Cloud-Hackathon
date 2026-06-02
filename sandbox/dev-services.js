@@ -130,7 +130,7 @@ process.on("SIGTERM", cleanup);
 
 console.log(`
 ${COLORS.bright}${COLORS.cyan}╔══════════════════════════════════════════════════════════════╗
-║  🦍 Cerberus AI — Development Mode (Auto-Reload)              ║
+║  🔒 Cerberus FinSec — Development Mode (Auto-Reload)          ║
 ║  Session:   ${CORRELATION_ID}                                            ║
 ║  Hono API:  http://localhost:${PORT}                                ║
 ║  MCP HTTP:  http://localhost:${MCP_PORT}                                ║

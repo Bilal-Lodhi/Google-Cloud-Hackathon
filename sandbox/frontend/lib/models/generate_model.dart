@@ -1,42 +1,47 @@
-// ─── Cerberus AI — Test Suite Generator Model ─────────────────────────────
-// Models the structured JSON output contract from the Hono API Orchestrator
-// backed by Gemini 3 Flash Preview.
+// ═══════════════════════════════════════════════════════════════════
+// Cerberus FinSec — Compliance Policy & Threat Matrix Generator Model
+// ═══════════════════════════════════════════════════════════════════
+// Models the structured JSON output contract from the Hono API
+// Orchestrator backed by Gemini 3 Flash Preview.
 //
-// Field names match the TypeScript types in sandbox/hono-api/src/types.ts
-// exactly (camelCase). The API response envelope is:
-//   { success: bool, suite: GeneratedSuite, mcpCorrelationId: string }
+// Field names match the TypeScript types in
+// sandbox/hono-api/src/types.ts exactly (camelCase).
+// The API response envelope is:
+//   { success: bool, matrix: ComplianceMatrix, mcpCorrelationId: string }
 
-class GeneratedSuite {
-  final SuiteMetadata metadata;
-  final List<RoleDescriptor> roles;
-  final List<CompetencyTree> competencies;
-  final List<GeneratedProblem> problems;
-  final List<HiddenTestingMatrix> testingMatrices;
+class ComplianceMatrix {
+  final MatrixMetadata metadata;
+  final List<TargetSystemDescriptor> targetSystems;
+  final List<RegulatoryMandate> regulatoryMandates;
+  final List<ThreatVector> threatVectors;
+  final List<AuditTrailMatrix> auditTrailMatrices;
 
-  const GeneratedSuite({
+  const ComplianceMatrix({
     required this.metadata,
-    required this.roles,
-    required this.competencies,
-    required this.problems,
-    required this.testingMatrices,
+    required this.targetSystems,
+    required this.regulatoryMandates,
+    required this.threatVectors,
+    required this.auditTrailMatrices,
   });
 
-  factory GeneratedSuite.fromJson(Map<String, dynamic> json) {
-    return GeneratedSuite(
-      metadata: SuiteMetadata.fromJson(
+  factory ComplianceMatrix.fromJson(Map<String, dynamic> json) {
+    return ComplianceMatrix(
+      metadata: MatrixMetadata.fromJson(
         (json['metadata'] as Map<String, dynamic>?) ?? const {},
       ),
-      roles: (json['roles'] as List<dynamic>? ?? [])
-          .map((r) => RoleDescriptor.fromJson(r as Map<String, dynamic>))
+      targetSystems: (json['targetSystems'] as List<dynamic>? ?? [])
+          .map(
+            (r) => TargetSystemDescriptor.fromJson(r as Map<String, dynamic>),
+          )
           .toList(),
-      competencies: (json['competencies'] as List<dynamic>? ?? [])
-          .map((c) => CompetencyTree.fromJson(c as Map<String, dynamic>))
+      regulatoryMandates: (json['regulatoryMandates'] as List<dynamic>? ?? [])
+          .map((c) => RegulatoryMandate.fromJson(c as Map<String, dynamic>))
           .toList(),
-      problems: (json['problems'] as List<dynamic>? ?? [])
-          .map((p) => GeneratedProblem.fromJson(p as Map<String, dynamic>))
+      threatVectors: (json['threatVectors'] as List<dynamic>? ?? [])
+          .map((p) => ThreatVector.fromJson(p as Map<String, dynamic>))
           .toList(),
-      testingMatrices: (json['testingMatrices'] as List<dynamic>? ?? [])
-          .map((m) => HiddenTestingMatrix.fromJson(m as Map<String, dynamic>))
+      auditTrailMatrices: (json['auditTrailMatrices'] as List<dynamic>? ?? [])
+          .map((m) => AuditTrailMatrix.fromJson(m as Map<String, dynamic>))
           .toList(),
     );
   }
@@ -44,24 +49,24 @@ class GeneratedSuite {
 
 // ── Metadata ─────────────────────────────────────────────────────────────
 
-class SuiteMetadata {
-  final String suiteId;
+class MatrixMetadata {
+  final String matrixId;
   final String generatedAt;
   final String modelVersion;
   final String promptFingerprint;
   final TokenUsageStats tokenUsage;
 
-  const SuiteMetadata({
-    required this.suiteId,
+  const MatrixMetadata({
+    required this.matrixId,
     required this.generatedAt,
     required this.modelVersion,
     required this.promptFingerprint,
     required this.tokenUsage,
   });
 
-  factory SuiteMetadata.fromJson(Map<String, dynamic> json) {
-    return SuiteMetadata(
-      suiteId: json['suiteId'] as String? ?? '',
+  factory MatrixMetadata.fromJson(Map<String, dynamic> json) {
+    return MatrixMetadata(
+      matrixId: json['matrixId'] as String? ?? '',
       generatedAt: json['generatedAt'] as String? ?? '',
       modelVersion: json['modelVersion'] as String? ?? '',
       promptFingerprint: json['promptFingerprint'] as String? ?? '',
@@ -92,239 +97,212 @@ class TokenUsageStats {
   }
 }
 
-// ── Roles ─────────────────────────────────────────────────────────────────
+// ── Target Systems (was Roles/Domains) ───────────────────────────────────
 
-class RoleDescriptor {
-  final String roleId;
+class TargetSystemDescriptor {
+  final String systemId;
   final String title;
-  final String seniorityLevel;
-  final List<String> requiredCompetencyIds;
+  final String criticalityTier;
+  final List<String> requiredMandateIds;
 
-  const RoleDescriptor({
-    required this.roleId,
+  const TargetSystemDescriptor({
+    required this.systemId,
     required this.title,
-    required this.seniorityLevel,
-    required this.requiredCompetencyIds,
+    required this.criticalityTier,
+    required this.requiredMandateIds,
   });
 
-  factory RoleDescriptor.fromJson(Map<String, dynamic> json) {
-    return RoleDescriptor(
-      roleId: json['roleId'] as String? ?? '',
+  factory TargetSystemDescriptor.fromJson(Map<String, dynamic> json) {
+    return TargetSystemDescriptor(
+      systemId: json['systemId'] as String? ?? '',
       title: json['title'] as String? ?? '',
-      seniorityLevel: json['seniorityLevel'] as String? ?? '',
-      requiredCompetencyIds: List<String>.from(
-        (json['requiredCompetencyIds'] as List<dynamic>?) ?? [],
+      criticalityTier: json['criticalityTier'] as String? ?? '',
+      requiredMandateIds: List<String>.from(
+        (json['requiredMandateIds'] as List<dynamic>?) ?? [],
       ),
     );
   }
 }
 
-// ── Competencies ──────────────────────────────────────────────────────────
+// ── Regulatory Mandates (was Competencies) ───────────────────────────────
 
-class CompetencyTree {
-  final String competencyId;
+class RegulatoryMandate {
+  final String mandateId;
   final String name;
   final String description;
   final double weight;
-  final List<CompetencyTree> subCompetencies;
+  final List<RegulatoryMandate> subMandates;
 
-  const CompetencyTree({
-    required this.competencyId,
+  const RegulatoryMandate({
+    required this.mandateId,
     required this.name,
     required this.description,
     required this.weight,
-    required this.subCompetencies,
+    required this.subMandates,
   });
 
-  factory CompetencyTree.fromJson(Map<String, dynamic> json) {
-    return CompetencyTree(
-      competencyId: json['competencyId'] as String? ?? '',
+  factory RegulatoryMandate.fromJson(Map<String, dynamic> json) {
+    return RegulatoryMandate(
+      mandateId: json['mandateId'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       weight: (json['weight'] as num?)?.toDouble() ?? 0.0,
-      subCompetencies: (json['subCompetencies'] as List<dynamic>? ?? [])
-          .map((s) => CompetencyTree.fromJson(s as Map<String, dynamic>))
+      subMandates: (json['subMandates'] as List<dynamic>? ?? [])
+          .map((s) => RegulatoryMandate.fromJson(s as Map<String, dynamic>))
           .toList(),
     );
   }
 }
 
-// ── Problems ──────────────────────────────────────────────────────────────
+// ── Threat Vectors (was Problems/Test Cases) ─────────────────────────────
 
-class GeneratedProblem {
-  final String problemId;
-  final String problemType;
+class ThreatVector {
+  final String vectorId;
+  final String vectorType;
   final String title;
   final String body;
   final String? language;
   final String? starterCode;
-  final List<HiddenTestCase> testCases;
-  final List<MCQOption> options;
+  final List<PenetrationScenario> scenarios;
+  final List<MitigationOption> options;
   final String? expectedAnswer;
-  final String difficulty;
-  final String competencyId;
-  final int timeAllocationSeconds;
-  final int maxScore;
+  final String severityLevel;
+  final String mandateId;
+  final int auditWindowSeconds;
+  final int maxRiskScore;
 
-  const GeneratedProblem({
-    required this.problemId,
-    required this.problemType,
+  const ThreatVector({
+    required this.vectorId,
+    required this.vectorType,
     required this.title,
     required this.body,
     required this.language,
     required this.starterCode,
-    required this.testCases,
+    required this.scenarios,
     required this.options,
     required this.expectedAnswer,
-    required this.difficulty,
-    required this.competencyId,
-    required this.timeAllocationSeconds,
-    required this.maxScore,
+    required this.severityLevel,
+    required this.mandateId,
+    required this.auditWindowSeconds,
+    required this.maxRiskScore,
   });
 
-  factory GeneratedProblem.fromJson(Map<String, dynamic> json) {
-    return GeneratedProblem(
-      problemId: json['problemId'] as String? ?? '',
-      problemType: json['problemType'] as String? ?? '',
+  factory ThreatVector.fromJson(Map<String, dynamic> json) {
+    return ThreatVector(
+      vectorId: json['vectorId'] as String? ?? '',
+      vectorType: json['vectorType'] as String? ?? '',
       title: json['title'] as String? ?? '',
       body: json['body'] as String? ?? '',
       language: json['language'] as String?,
       starterCode: json['starterCode'] as String?,
-      testCases: (json['testCases'] as List<dynamic>? ?? [])
-          .map((t) => HiddenTestCase.fromJson(t as Map<String, dynamic>))
+      scenarios: (json['scenarios'] as List<dynamic>? ?? [])
+          .map((t) => PenetrationScenario.fromJson(t as Map<String, dynamic>))
           .toList(),
       options: (json['options'] as List<dynamic>? ?? [])
-          .map((o) => MCQOption.fromJson(o as Map<String, dynamic>))
+          .map((o) => MitigationOption.fromJson(o as Map<String, dynamic>))
           .toList(),
       expectedAnswer: json['expectedAnswer'] as String?,
-      difficulty: json['difficulty'] as String? ?? '',
-      competencyId: json['competencyId'] as String? ?? '',
-      timeAllocationSeconds: json['timeAllocationSeconds'] as int? ?? 0,
-      maxScore: json['maxScore'] as int? ?? 0,
+      severityLevel: json['severityLevel'] as String? ?? '',
+      mandateId: json['mandateId'] as String? ?? '',
+      auditWindowSeconds: json['auditWindowSeconds'] as int? ?? 0,
+      maxRiskScore: json['maxRiskScore'] as int? ?? 0,
     );
   }
 }
 
-class HiddenTestCase {
-  final String caseId;
+// ── Penetration Scenarios (was Test Cases) ───────────────────────────────
+
+class PenetrationScenario {
+  final String scenarioId;
   final String input;
   final String expectedOutput;
-  final bool isPublic;
-  final int timeoutMs;
-
-  const HiddenTestCase({
-    required this.caseId,
-    required this.input,
-    required this.expectedOutput,
-    required this.isPublic,
-    required this.timeoutMs,
-  });
-
-  factory HiddenTestCase.fromJson(Map<String, dynamic> json) {
-    return HiddenTestCase(
-      caseId: json['caseId'] as String? ?? '',
-      input: json['input'] as String? ?? '',
-      expectedOutput: json['expectedOutput'] as String? ?? '',
-      isPublic: json['isPublic'] as bool? ?? false,
-      timeoutMs: json['timeoutMs'] as int? ?? 0,
-    );
-  }
-}
-
-class MCQOption {
-  final String optionId;
-  final String text;
-  final bool isCorrect;
+  final bool isExample;
   final String explanation;
 
-  const MCQOption({
-    required this.optionId,
-    required this.text,
-    required this.isCorrect,
+  const PenetrationScenario({
+    required this.scenarioId,
+    required this.input,
+    required this.expectedOutput,
+    required this.isExample,
     required this.explanation,
   });
 
-  factory MCQOption.fromJson(Map<String, dynamic> json) {
-    return MCQOption(
-      optionId: json['optionId'] as String? ?? '',
-      text: json['text'] as String? ?? '',
-      isCorrect: json['isCorrect'] as bool? ?? false,
+  factory PenetrationScenario.fromJson(Map<String, dynamic> json) {
+    return PenetrationScenario(
+      scenarioId: json['scenarioId'] as String? ?? '',
+      input: json['input'] as String? ?? '',
+      expectedOutput: json['expectedOutput'] as String? ?? '',
+      isExample: json['isExample'] as bool? ?? false,
       explanation: json['explanation'] as String? ?? '',
     );
   }
 }
 
-// ── Testing Matrices ──────────────────────────────────────────────────────
+// ── Mitigation Options (was MCQ Options) ─────────────────────────────────
 
-class HiddenTestingMatrix {
+class MitigationOption {
+  final String optionId;
+  final String text;
+  final bool isCorrectMitigation;
+  final String? rationale;
+
+  const MitigationOption({
+    required this.optionId,
+    required this.text,
+    required this.isCorrectMitigation,
+    required this.rationale,
+  });
+
+  factory MitigationOption.fromJson(Map<String, dynamic> json) {
+    return MitigationOption(
+      optionId: json['optionId'] as String? ?? '',
+      text: json['text'] as String? ?? '',
+      isCorrectMitigation: json['isCorrectMitigation'] as bool? ?? false,
+      rationale: json['rationale'] as String?,
+    );
+  }
+}
+
+// ── Audit Trail Matrices (was Testing Matrices) ──────────────────────────
+
+class AuditTrailMatrix {
   final String matrixId;
-  final String problemId;
-  final List<String> competencyIds;
-  final ScoringFormula scoringFormula;
-  final AntiCheatThresholds antiCheatThresholds;
+  final String mandateId;
+  final String vectorId;
+  final String trailName;
+  final String description;
+  final List<String> logSources;
+  final List<String> detectionRules;
+  final String severityMapping;
+  final int escalationThreshold;
 
-  const HiddenTestingMatrix({
+  const AuditTrailMatrix({
     required this.matrixId,
-    required this.problemId,
-    required this.competencyIds,
-    required this.scoringFormula,
-    required this.antiCheatThresholds,
+    required this.mandateId,
+    required this.vectorId,
+    required this.trailName,
+    required this.description,
+    required this.logSources,
+    required this.detectionRules,
+    required this.severityMapping,
+    required this.escalationThreshold,
   });
 
-  factory HiddenTestingMatrix.fromJson(Map<String, dynamic> json) {
-    return HiddenTestingMatrix(
+  factory AuditTrailMatrix.fromJson(Map<String, dynamic> json) {
+    return AuditTrailMatrix(
       matrixId: json['matrixId'] as String? ?? '',
-      problemId: json['problemId'] as String? ?? '',
-      competencyIds: List<String>.from(
-        (json['competencyIds'] as List<dynamic>?) ?? [],
+      mandateId: json['mandateId'] as String? ?? '',
+      vectorId: json['vectorId'] as String? ?? '',
+      trailName: json['trailName'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      logSources: List<String>.from(
+        (json['logSources'] as List<dynamic>?) ?? [],
       ),
-      scoringFormula: ScoringFormula.fromJson(
-        (json['scoringFormula'] as Map<String, dynamic>?) ?? const {},
+      detectionRules: List<String>.from(
+        (json['detectionRules'] as List<dynamic>?) ?? [],
       ),
-      antiCheatThresholds: AntiCheatThresholds.fromJson(
-        (json['antiCheatThresholds'] as Map<String, dynamic>?) ?? const {},
-      ),
-    );
-  }
-}
-
-class ScoringFormula {
-  final String type;
-  final Map<String, double> weights;
-
-  const ScoringFormula({required this.type, required this.weights});
-
-  factory ScoringFormula.fromJson(Map<String, dynamic> json) {
-    final rawWeights = (json['weights'] as Map<String, dynamic>?) ?? const {};
-    return ScoringFormula(
-      type: json['type'] as String? ?? '',
-      weights: rawWeights.map((k, v) => MapEntry(k, (v as num).toDouble())),
-    );
-  }
-}
-
-class AntiCheatThresholds {
-  final int maxPasteEvents;
-  final int maxTimeBetweenKeystrokesMs;
-  final double plagiarismSimilarityThreshold;
-  final double structuralChangeSensitivity;
-
-  const AntiCheatThresholds({
-    required this.maxPasteEvents,
-    required this.maxTimeBetweenKeystrokesMs,
-    required this.plagiarismSimilarityThreshold,
-    required this.structuralChangeSensitivity,
-  });
-
-  factory AntiCheatThresholds.fromJson(Map<String, dynamic> json) {
-    return AntiCheatThresholds(
-      maxPasteEvents: json['maxPasteEvents'] as int? ?? 0,
-      maxTimeBetweenKeystrokesMs:
-          json['maxTimeBetweenKeystrokesMs'] as int? ?? 0,
-      plagiarismSimilarityThreshold:
-          (json['plagiarismSimilarityThreshold'] as num?)?.toDouble() ?? 0.0,
-      structuralChangeSensitivity:
-          (json['structuralChangeSensitivity'] as num?)?.toDouble() ?? 0.0,
+      severityMapping: json['severityMapping'] as String? ?? '',
+      escalationThreshold: json['escalationThreshold'] as int? ?? 0,
     );
   }
 }

@@ -1,44 +1,40 @@
-/// ─── Cerberus AI — Identity Model ────────────────────────────────────────────
-/// Lightweight identity types matching the Hono API identity endpoints.
+// ═══════════════════════════════════════════════════════════════════
+// Cerberus FinSec — Identity Model
+// ═══════════════════════════════════════════════════════════════════
+// Lightweight identity types matching the Hono API identity endpoints
+// for Employee/Operator UID management.
 
-class IdentityPayload {
+/// An employee (operator) identity record.
+class OperatorIdentity {
+  final String employeeId;
   final String displayName;
-  final String candidateId;
-  final String? role;
+  final String department;
+  final String role;
+  final String clearanceLevel;
 
-  IdentityPayload({
+  const OperatorIdentity({
+    required this.employeeId,
     required this.displayName,
-    required this.candidateId,
-    this.role,
+    required this.department,
+    required this.role,
+    required this.clearanceLevel,
   });
 
-  factory IdentityPayload.fromJson(Map<String, dynamic> json) {
-    return IdentityPayload(
-      displayName: json['displayName'] as String,
-      candidateId: json['candidateId'] as String,
-      role: json['role'] as String?,
+  factory OperatorIdentity.fromJson(Map<String, dynamic> json) {
+    return OperatorIdentity(
+      employeeId: json['employeeId'] as String? ?? '',
+      displayName: json['displayName'] as String? ?? '',
+      department: json['department'] as String? ?? '',
+      role: json['role'] as String? ?? '',
+      clearanceLevel: json['clearanceLevel'] as String? ?? '',
     );
   }
-}
 
-class IdentityResponse {
-  final bool success;
-  final IdentityPayload identity;
-  final String sessionToken;
-
-  IdentityResponse({
-    required this.success,
-    required this.identity,
-    required this.sessionToken,
-  });
-
-  factory IdentityResponse.fromJson(Map<String, dynamic> json) {
-    return IdentityResponse(
-      success: json['success'] as bool,
-      identity: IdentityPayload.fromJson(
-        json['identity'] as Map<String, dynamic>,
-      ),
-      sessionToken: json['sessionToken'] as String,
-    );
-  }
+  Map<String, dynamic> toJson() => {
+    'employeeId': employeeId,
+    'displayName': displayName,
+    'department': department,
+    'role': role,
+    'clearanceLevel': clearanceLevel,
+  };
 }

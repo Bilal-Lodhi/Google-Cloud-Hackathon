@@ -7,29 +7,29 @@ import '../models/generate_model.dart';
 import '../models/guardian_model.dart';
 import '../models/identity_model.dart';
 
-/// ─── Cerberus AI — API Service ──────────────────────────────────────────────
+/// ─── Cerberus FinSec — API Service ────────────────────────────────────────
 /// Thin HTTP / SSE connectivity layer targeting the Hono API gateway.
 /// Every call routes through Google Cloud-native fetch bindings (via Dart http)
 /// with zero legacy dependencies.
 
-class GenerateResult {
-  final GeneratedSuite? suite;
+class ComplianceMatrixResult {
+  final ComplianceMatrix? matrix;
   final String? generationRequestId;
   final bool cancelled;
   final String? error;
 
-  GenerateResult({
-    this.suite,
+  ComplianceMatrixResult({
+    this.matrix,
     this.generationRequestId,
     this.cancelled = false,
     this.error,
   });
 
-  factory GenerateResult.fromJson(Map<String, dynamic> json) {
+  factory ComplianceMatrixResult.fromJson(Map<String, dynamic> json) {
     final cancelled = json['cancelled'] == true;
-    final suiteJson = json['suite'] as Map<String, dynamic>?;
-    return GenerateResult(
-      suite: suiteJson != null ? GeneratedSuite.fromJson(suiteJson) : null,
+    final matrixJson = json['matrix'] as Map<String, dynamic>?;
+    return ComplianceMatrixResult(
+      matrix: matrixJson != null ? ComplianceMatrix.fromJson(matrixJson) : null,
       generationRequestId: json['generationRequestId'] as String?,
       cancelled: cancelled,
       error: json['error'] as String?,
@@ -58,17 +58,17 @@ class ApiService {
   }
 
   // ── Identity ───────────────────────────────────────────────────────────────
-  /// POST /api/v1/identity/set — registers display name + candidate ID,
+  /// POST /api/v1/identity/set — registers an employee operator identity,
   /// returns ephemeral session token.
-  Future<IdentityResponse> setIdentity({
+  Future<OperatorIdentity> setIdentity({
     required String displayName,
-    required String candidateId,
+    required String employeeId,
     String? role,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/identity/set');
     final body = <String, dynamic>{
       'displayName': displayName,
-      'candidateId': candidateId,
+      'employeeId': employeeId,
     };
     if (role != null && role.isNotEmpty) {
       body['role'] = role;
@@ -78,7 +78,15 @@ class ApiService {
         .timeout(const Duration(seconds: 10));
     final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 201) {
-      return IdentityResponse.fromJson(responseBody);
+      // Extract nested identity object and session token from the
+      // backend envelope: { success, identity: {...}, sessionToken }
+      final identityJson =
+          responseBody['identity'] as Map<String, dynamic>? ?? {};
+      final token = responseBody['sessionToken'] as String?;
+      if (token != null && token.isNotEmpty) {
+        sessionToken = token;
+      }
+      return OperatorIdentity.fromJson(identityJson);
     }
     throw ApiException(
       response.statusCode,
@@ -99,11 +107,11 @@ class ApiService {
     return HealthStatus.fromJson(body);
   }
 
-  // ── Autonomous Test Suite Generator ────────────────────────────────────────
-  Future<GenerateResult> generateSuite(
+  // ── Compliance Policy & Threat Matrix Generator ────────────────────────────
+  Future<ComplianceMatrixResult> generateMatrix(
     String prompt, {
-    required int problemCount,
-    required String roleContext,
+    required int vectorCount,
+    required String targetSystemContext,
     String? generationRequestId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/generate');
@@ -119,23 +127,22 @@ class ApiService {
             headers: {..._commonHeaders(), ...headers},
             body: jsonEncode({
               'prompt': prompt,
-              'roleContext': roleContext,
-              'problemCount': problemCount,
+              'roleContext': targetSystemContext,
+              'problemCount': vectorCount,
             }),
           )
           .timeout(const Duration(seconds: 120));
     } on TimeoutException {
       throw ApiException(
         503,
-        'Suite generation timed out — Gemini may be overloaded',
+        'Threat matrix generation timed out — Gemini may be overloaded',
       );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      // Parse the full envelope to capture generationRequestId and cancelled flag
-      return GenerateResult.fromJson(body);
+      return ComplianceMatrixResult.fromJson(body);
     }
 
     // ── Extract server-side error detail for better UX ────────────────────
@@ -146,7 +153,7 @@ class ApiService {
     } catch (_) {
       detail = response.body.isNotEmpty
           ? response.body.substring(0, Math.min(response.body.length, 256))
-          : 'Suite generation failed';
+          : 'Compliance matrix generation failed';
     }
 
     throw ApiException(response.statusCode, detail);
@@ -169,8 +176,8 @@ class ApiService {
     }
   }
 
-  // ── Live Guardian Stream (SSE with Polling Fallback) ───────────────────────
-  Stream<SuspicionPayload> streamGuardianEvents(
+  // ── Live Audit Stream (SSE with Polling Fallback) ──────────────────────────
+  Stream<RiskAssessmentPayload> streamAuditEvents(
     String sessionId, {
     Duration pollInterval = const Duration(seconds: 5),
   }) async* {
@@ -195,7 +202,7 @@ class ApiService {
             if (raw.isEmpty || raw == '[DONE]') continue;
             try {
               final json = jsonDecode(raw) as Map<String, dynamic>;
-              yield SuspicionPayload.fromJson(json);
+              yield RiskAssessmentPayload.fromJson(json);
             } catch (_) {
               // Skip malformed events
             }
@@ -210,9 +217,9 @@ class ApiService {
     // ── Polling Fallback ────────────────────────────────────────────────────
     while (true) {
       try {
-        final review = await fetchReview(sessionId);
-        if (review.latestSuspicion != null) {
-          yield review.latestSuspicion!;
+        final review = await fetchAuditRecord(sessionId);
+        if (review.lastRiskPayload != null) {
+          yield review.lastRiskPayload!;
         }
       } catch (_) {
         // Silently swallow polling errors to keep the stream alive
@@ -222,52 +229,219 @@ class ApiService {
   }
 
   // ── Ingest Micro-Events ────────────────────────────────────────────────────
-  /// Submits candidate behavioral telemetry events to the Hono Guardian
-  /// endpoint for real-time analysis. Returns `true` on successful ingestion.
-  Future<bool> ingestMicroEvents(List<MicroEvent> events) async {
+  /// Submits employee terminal behavioral telemetry events to the Hono Guardian
+  /// endpoint for real-time risk analysis. Returns the ingestion response
+  /// with anomaly risk index scoring.
+  Future<IngestMicroEventResponse> ingestMicroEvents(
+    List<MicroEvent> events,
+  ) async {
     final uri = Uri.parse('$baseUrl/api/v1/guardian/ingest');
 
-    try {
-      final response = await _client
-          .post(
-            uri,
-            headers: _commonHeaders(),
-            body: jsonEncode({
-              'events': events.map((e) => e.toJson()).toList(),
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
+    final response = await _client
+        .post(
+          uri,
+          headers: _commonHeaders(),
+          body: jsonEncode({'events': events.map((e) => e.toJson()).toList()}),
+        )
+        .timeout(const Duration(seconds: 15));
 
-      return response.statusCode == 200 || response.statusCode == 201;
-    } catch (_) {
-      return false;
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return IngestMicroEventResponse.fromJson(body);
     }
+    throw ApiException(
+      response.statusCode,
+      (body['error'] as String?) ?? 'Micro-event ingestion failed',
+    );
   }
 
-  // ── Fetch Review Record ────────────────────────────────────────────────────
-  /// Fetches a single session's full review payload from
-  /// GET /api/v1/sessions/:sessionId which returns { success, data }.
-  Future<ReviewRecord> fetchReview(String sessionId) async {
-    final uri = Uri.parse('$baseUrl/api/v1/sessions/$sessionId');
+  /// POST /api/v1/guardian/deploy — deploys a guardrail matrix to a live
+  /// employee terminal session, returning the initialized audit session.
+  Future<AuditSession> deployGuardrail({
+    required String employeeId,
+    required String sessionId,
+    required String matrixId,
+    String? targetSystem,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/guardian/deploy');
+    final response = await _client
+        .post(
+          uri,
+          headers: _commonHeaders(),
+          body: jsonEncode({
+            'employeeUid': employeeId,
+            'sessionId': sessionId,
+            'matrixId': matrixId,
+            'targetSystem': targetSystem ?? 'Core Trading Ledger',
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return AuditSession.fromJson(body);
+    }
+    throw ApiException(
+      response.statusCode,
+      (body['error'] as String?) ?? 'Guardrail deployment failed',
+    );
+  }
+
+  // ── Fetch Audit Record ─────────────────────────────────────────────────────
+  /// Fetches a single session's full audit review payload.
+  /// Calls the review endpoint GET /api/v1/sessions/:sessionId
+  /// (returns { success, data: SessionReviewResponse }) first.
+  /// Falls back to the guardian session endpoint if the review
+  /// endpoint is unavailable (e.g. no MongoDB MCP sidecar).
+  Future<ReviewRecord> fetchAuditRecord(String sessionId) async {
+    // ── Primary: review endpoint (full timeline + risk reports) ──
+    try {
+      final reviewUri = Uri.parse('$baseUrl/api/v1/sessions/$sessionId');
+      final reviewRes = await _client
+          .get(reviewUri, headers: _commonHeaders())
+          .timeout(const Duration(seconds: 15));
+
+      if (reviewRes.statusCode == 200) {
+        final reviewBody = jsonDecode(reviewRes.body) as Map<String, dynamic>;
+        final data = reviewBody['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          // Map SessionReviewResponse fields to ReviewRecord contract
+          return ReviewRecord(
+            sessionId: data['sessionId'] as String? ?? sessionId,
+            employeeId: data['employeeId'] as String? ?? 'unknown',
+            auditId: data['auditId'] as String? ?? '',
+            status: data['status'] as String? ?? 'active',
+            startedAt: data['startedAt'] as String? ?? '',
+            endedAt: data['endedAt'] as String?,
+            overallRiskScore:
+                (data['finalRiskScore'] as num?)?.toDouble() ?? 0.0,
+            lastRiskPayload: _extractLatestRisk(
+              data['riskSummary'] as List<dynamic>?,
+            ),
+            eventCount: (data['timeline'] as List<dynamic>?)?.length ?? 0,
+            pasteCount: _countEvents(
+              data['timeline'] as List<dynamic>?,
+              'PASTE_TRIGGER',
+            ),
+            tabSwitchCount: _countEvents(
+              data['timeline'] as List<dynamic>?,
+              'TAB_SWITCH',
+            ),
+            copyAttemptCount: _countEvents(
+              data['timeline'] as List<dynamic>?,
+              'COPY_ATTEMPT',
+            ),
+            timeline:
+                (data['timeline'] as List<dynamic>?)
+                    ?.map((e) => e as Map<String, dynamic>)
+                    .toList() ??
+                [],
+            codeSubmission: data['terminalContent'] as String? ?? '',
+            peakRiskScore: _extractPeakRisk(
+              data['riskSummary'] as List<dynamic>?,
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Fall through to guardian session endpoint
+    }
+
+    // ── Fallback: guardian session endpoint ──
+    final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions/$sessionId');
     final response = await _client
         .get(uri, headers: _commonHeaders())
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'Review fetch failed');
+      throw ApiException(response.statusCode, 'Audit record fetch failed');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final data = body['data'] as Map<String, dynamic>?;
-    if (data == null) {
-      throw ApiException(response.statusCode, 'Review data missing');
-    }
-    return ReviewRecord.fromJson(data);
+
+    // Guardian may wrap result under 'session' or 'data' key, or
+    // return fields at the top level directly (re-branded schema).
+    final session =
+        (body['session'] as Map<String, dynamic>?) ??
+        (body['data'] as Map<String, dynamic>?) ??
+        body;
+
+    return ReviewRecord(
+      sessionId: session['sessionId'] as String? ?? sessionId,
+      employeeId:
+          session['employeeId'] as String? ??
+          session['employeeUid'] as String? ??
+          'unknown',
+      auditId: session['auditId'] as String? ?? '',
+      status: session['status'] as String? ?? 'active',
+      startedAt:
+          session['startedAt'] as String? ??
+          session['deployedAt'] as String? ??
+          '',
+      endedAt: session['endedAt'] as String?,
+      eventCount: session['eventCount'] as int? ?? 0,
+      pasteCount: session['pasteCount'] as int? ?? 0,
+      tabSwitchCount: session['tabSwitchCount'] as int? ?? 0,
+      copyAttemptCount: session['copyAttemptCount'] as int? ?? 0,
+      overallRiskScore:
+          (session['riskIndex'] as num?)?.toDouble() ??
+          (session['overallRiskScore'] as num?)?.toDouble() ??
+          0.0,
+      lastRiskPayload: session['lastRiskPayload'] != null
+          ? RiskAssessmentPayload.fromJson(
+              session['lastRiskPayload'] as Map<String, dynamic>,
+            )
+          : null,
+      codeSubmission:
+          session['currentCode'] as String? ??
+          session['codeSubmission'] as String? ??
+          '',
+      targetSystem:
+          session['targetSystem'] as String? ??
+          session['targetSystemLabel'] as String? ??
+          '',
+      timeline:
+          (session['timeline'] as List<dynamic>?)
+              ?.map((e) => e as Map<String, dynamic>)
+              .toList() ??
+          [],
+      peakRiskScore: (session['peakRiskScore'] as num?)?.toDouble() ?? 0.0,
+    );
   }
 
-  // ── List All Sessions (Drawer) ─────────────────────────────────────────────
-  /// Fetches the session list from GET /api/v1/sessions
+  /// Extracts the most recent risk payload from the riskSummary array.
+  static RiskAssessmentPayload? _extractLatestRisk(List<dynamic>? riskSummary) {
+    if (riskSummary == null || riskSummary.isEmpty) return null;
+    final latest = riskSummary.last as Map<String, dynamic>?;
+    if (latest == null) return null;
+    return RiskAssessmentPayload.fromJson(latest);
+  }
+
+  /// Counts events of a specific type from the timeline list.
+  static int _countEvents(List<dynamic>? timeline, String eventType) {
+    if (timeline == null) return 0;
+    return timeline
+        .where((e) => (e as Map<String, dynamic>)['eventType'] == eventType)
+        .length;
+  }
+
+  /// Extracts the peak risk score from the riskSummary array.
+  static double _extractPeakRisk(List<dynamic>? riskSummary) {
+    if (riskSummary == null || riskSummary.isEmpty) return 0.0;
+    double peak = 0.0;
+    for (final r in riskSummary) {
+      final score =
+          ((r as Map<String, dynamic>)['overallRiskScore'] as num?)
+              ?.toDouble() ??
+          0.0;
+      if (score > peak) peak = score;
+    }
+    return peak;
+  }
+
+  // ── List All Active Audits (Drawer) ────────────────────────────────────────
+  /// Fetches the audit session list from GET /api/v1/sessions
   /// which returns { success, data: [...] }.
   Future<List<SessionSummary>> fetchSessions() async {
-    final uri = Uri.parse('$baseUrl/api/v1/sessions');
+    final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions');
     final response = await _client
         .get(uri, headers: _commonHeaders())
         .timeout(const Duration(seconds: 15));

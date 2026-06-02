@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/identity_provider.dart';
 
-/// ─── Cerberus AI — Identity Setup Screen ─────────────────────────────────────
-/// Lightweight "who are you?" screen — no passwords, just name + ID.
+/// ─── Cerberus FinSec — Identity Setup Screen ──────────────────────────────────
+/// Lightweight "who are you?" screen — no passwords, just name + Employee UID.
 /// Shows on first launch; once identity is registered, redirects to dashboard.
 ///
 /// In production this would be a full Auth0 / Firebase Auth / Identity Platform flow.
@@ -18,13 +18,13 @@ class IdentitySetupScreen extends StatefulWidget {
 class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _displayNameController = TextEditingController();
-  final _candidateIdController = TextEditingController();
+  final _employeeIdController = TextEditingController();
   final _roleController = TextEditingController();
 
   @override
   void dispose() {
     _displayNameController.dispose();
-    _candidateIdController.dispose();
+    _employeeIdController.dispose();
     _roleController.dispose();
     super.dispose();
   }
@@ -35,7 +35,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
     final identity = context.read<IdentityProvider>();
     await identity.setIdentity(
       displayName: _displayNameController.text.trim(),
-      candidateId: _candidateIdController.text.trim(),
+      employeeId: _employeeIdController.text.trim(),
       role: _roleController.text.trim().isNotEmpty
           ? _roleController.text.trim()
           : null,
@@ -57,15 +57,15 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Logo & Title ─────────────────────────────────────────────
+                // ── Logo & Title ───────────────────────────────────────────────
                 Icon(
-                  Icons.security,
+                  Icons.shield_moon,
                   size: 64,
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Cerberus AI',
+                  'Cerberus FinSec',
                   style: theme.textTheme.headlineLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.primary,
@@ -74,7 +74,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Agentic Assessment Platform',
+                  'Insider Threat & Data Exfiltration Guardian',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.outline,
                   ),
@@ -82,7 +82,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                 ),
                 const SizedBox(height: 40),
 
-                // ── Form Card ────────────────────────────────────────────────
+                // ── Form Card ──────────────────────────────────────────────────
                 Card(
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -97,14 +97,14 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            'Who are you?',
+                            'Operator Identity',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'No passwords — just a name to personalize your session.',
+                            'Enter your credentials to begin a monitored terminal session.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.outline,
                             ),
@@ -132,12 +132,12 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // Candidate / user ID
+                          // Employee / Operator UID
                           TextFormField(
-                            controller: _candidateIdController,
+                            controller: _employeeIdController,
                             decoration: const InputDecoration(
-                              labelText: 'Candidate ID',
-                              hintText: 'e.g. CAND-001',
+                              labelText: 'Employee UID',
+                              hintText: 'e.g. op-trader-001',
                               prefixIcon: Icon(Icons.badge_outlined),
                               border: OutlineInputBorder(),
                             ),
@@ -145,7 +145,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                             enabled: !identity.isLoading,
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) {
-                                return 'Please enter a candidate ID';
+                                return 'Please enter your Employee UID';
                               }
                               return null;
                             },
@@ -157,7 +157,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                             controller: _roleController,
                             decoration: const InputDecoration(
                               labelText: 'Role (optional)',
-                              hintText: 'e.g. Senior Backend Engineer',
+                              hintText: 'e.g. Senior Quant Trader',
                               prefixIcon: Icon(Icons.work_outline),
                               border: OutlineInputBorder(),
                             ),
@@ -222,7 +222,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          // ── Guest mode ────────────────────────────────────
+                          // ── Guest mode ──────────────────────────────────────
                           SizedBox(
                             height: 48,
                             child: OutlinedButton.icon(
@@ -230,9 +230,9 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                                   ? null
                                   : () async {
                                       await identity.setIdentity(
-                                        displayName: 'Guest Candidate',
-                                        candidateId: 'guest-001',
-                                        role: 'Guest',
+                                        displayName: 'Operator Trader',
+                                        employeeId: 'op-trader-001',
+                                        role: 'Quant Trader',
                                       );
                                     },
                               icon: const Icon(
@@ -240,7 +240,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                                 size: 20,
                               ),
                               label: const Text(
-                                'Continue as Guest',
+                                'Continue as Demo Operator',
                                 style: TextStyle(fontSize: 16),
                               ),
                             ),
@@ -253,7 +253,7 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
 
                 const SizedBox(height: 24),
 
-                // ── Footnote ──────────────────────────────────────────────────
+                // ── Footnote ────────────────────────────────────────────────────
                 Text(
                   'Identity is ephemeral — resets on page refresh.\n'
                   'Production deployments integrate with Google Cloud Identity Platform.',

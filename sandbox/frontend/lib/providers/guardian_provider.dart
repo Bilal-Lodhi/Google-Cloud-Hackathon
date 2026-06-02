@@ -3,34 +3,34 @@ import 'package:flutter/foundation.dart';
 import '../models/guardian_model.dart';
 import '../services/api_service.dart';
 
-/// ─── Cerberus AI — Guardian Provider ────────────────────────────────────────
-/// Manages the SSE stream of suspicion payloads from the Real-Time Intent &
-/// Plagiarism Guardian. Accumulates events into a session timeline and exposes
-/// the latest aggregated suspicion score.
+/// ─── Cerberus FinSec — Guardian Provider ─────────────────────────────────────
+/// Manages the SSE stream of risk assessment payloads from the Real-Time
+/// Insider Threat & Data Exfiltration Guardian. Accumulates events into
+/// a session timeline and exposes the latest aggregated anomaly risk index.
 
 class GuardianProvider extends ChangeNotifier {
   final ApiService _api;
 
-  final List<SuspicionPayload> _events = [];
-  StreamSubscription<SuspicionPayload>? _subscription;
+  final List<RiskAssessmentPayload> _events = [];
+  StreamSubscription<RiskAssessmentPayload>? _subscription;
   String? _error;
   bool _isStreaming = false;
 
   GuardianProvider(this._api);
 
-  List<SuspicionPayload> get events => List.unmodifiable(_events);
+  List<RiskAssessmentPayload> get events => List.unmodifiable(_events);
   String? get error => _error;
   bool get isStreaming => _isStreaming;
 
-  double get latestScore {
+  double get latestRiskScore {
     if (_events.isEmpty) return 0.0;
-    return _events.last.suspicionScore;
+    return _events.last.overallRiskScore;
   }
 
   int get criticalCount =>
-      _events.where((e) => e.severity == 'critical').length;
+      _events.where((e) => e.flags.any((f) => f.category == 'critical')).length;
   int get elevatedCount =>
-      _events.where((e) => e.severity == 'elevated').length;
+      _events.where((e) => e.flags.any((f) => f.category == 'elevated')).length;
 
   void startStreaming(String sessionId) {
     if (_isStreaming) return;
@@ -41,7 +41,7 @@ class GuardianProvider extends ChangeNotifier {
     notifyListeners();
 
     _subscription = _api
-        .streamGuardianEvents(sessionId)
+        .streamAuditEvents(sessionId)
         .listen(
           (payload) {
             _events.add(payload);
@@ -67,10 +67,32 @@ class GuardianProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Submits candidate behavioral telemetry events for server-side analysis.
-  /// Returns `true` if the events were accepted by the Hono Guardian endpoint.
-  Future<bool> ingestEvents(List<MicroEvent> events) {
-    return _api.ingestMicroEvents(events);
+  /// Submits employee terminal behavioral telemetry events for server-side
+  /// analysis. Returns the full ingestion response with anomaly scoring.
+  /// Pushes the response's riskPayload into the live events stream so the
+  /// middle-panel metrics dashboard updates in real time.
+  Future<IngestMicroEventResponse> ingestEvents(List<MicroEvent> events) async {
+    final result = await _api.ingestMicroEvents(events);
+    if (result.riskPayload != null) {
+      _events.add(result.riskPayload!);
+      notifyListeners();
+    }
+    return result;
+  }
+
+  /// Deploys a guardrail matrix to a live employee terminal session.
+  Future<AuditSession> deployGuardrail({
+    required String employeeId,
+    required String sessionId,
+    required String matrixId,
+    String? targetSystem,
+  }) {
+    return _api.deployGuardrail(
+      employeeId: employeeId,
+      sessionId: sessionId,
+      matrixId: matrixId,
+      targetSystem: targetSystem,
+    );
   }
 
   @override

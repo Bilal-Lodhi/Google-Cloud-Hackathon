@@ -1,10 +1,11 @@
 /**
- * Route: POST /api/v1/generate
- * Feature 1 — AUTONOMOUS TEST SUITE GENERATOR
+ * Route: POST /api/v1/generate + POST /api/v1/guardian/ingest + POST /api/v1/deploy-guardrail
+ * Feature 1 — COMPLIANCE POLICY & THREAT MATRIX GENERATOR
  *
- * Accepts a single text prompt and delegates to the Orchestrator Agent
- * backed by Gemini 3 Flash Preview. Returns a fully structured assessment suite
- * with metadata, competencies, problems, and hidden testing matrices.
+ * Accepts a single text prompt and delegates to the Cerberus FinSec
+ * CISO Orchestrator Agent backed by Gemini 3 Flash Preview.
+ * Returns a fully structured compliance audit profile with metadata,
+ * target systems, regulatory mandates, threat vectors, and penetration scenarios.
  *
  * ═══════════════════════════════════════════════════════════════════
  * ARCHITECTURE — Gemini is the SOLE gatekeeper for content filtering.
@@ -31,7 +32,7 @@
  */
 
 import { Hono } from "hono";
-import type { GenerateTestSuiteRequest } from "../types.js";
+import type { GenerateComplianceMatrixRequest } from "../types.js";
 import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
 
@@ -104,9 +105,9 @@ generateRouter.post("/", async (c) => {
   );
 
   // ── Step 1: Parse & Validate Request Body ──────────────────────
-  let body: GenerateTestSuiteRequest;
+  let body: GenerateComplianceMatrixRequest;
   try {
-    body = await c.req.json<GenerateTestSuiteRequest>();
+    body = await c.req.json<GenerateComplianceMatrixRequest>();
     console.log(
       `[Generate Route] [${requestId}] Body parsed — promptLen=${body.prompt?.length ?? 0} ` +
         `roleContext="${body.roleContext ?? "undefined"}" problemCount=${body.problemCount ?? "default"}`,
@@ -280,7 +281,8 @@ generateRouter.post("/", async (c) => {
     if (classificationRejected) {
       const geminiReason = verdict.reason || "";
       const tagline =
-        "\n\nAbuse Detected: I am a Test Generation and Assessment AI, ask me to generate tests.";
+        "\n\nSecurity Violation: I am the Cerberus FinSec Insider Threat & Data Exfiltration Guardian. " +
+        "Request a compliance audit, threat matrix, or penetration test to proceed.";
       const reason = geminiReason + tagline;
 
       console.warn(
@@ -339,34 +341,34 @@ generateRouter.post("/", async (c) => {
 
   try {
     console.log(
-      `[Generate Route] [${requestId}] Delegating to GeminiClient.generateTestSuite...`,
+      `[Generate Route] [${requestId}] Delegating to GeminiClient.generateComplianceMatrix...`,
     );
-    const suiteStartMs = Date.now();
+    const matrixStartMs = Date.now();
 
-    const suite = await gemini.generateTestSuite(
+    const matrix = await gemini.generateComplianceMatrix(
       enrichedPrompt,
       body.roleContext,
       problemCount,
       abortController.signal,
     );
 
-    const suiteElapsed = Date.now() - suiteStartMs;
+    const matrixElapsed = Date.now() - matrixStartMs;
     console.log(
-      `[Generate Route] [${requestId}] GeminiClient returned suite in ${suiteElapsed}ms — ` +
-        `${suite.problems.length} problems, ${suite.competencies.length} competencies`,
+      `[Generate Route] [${requestId}] GeminiClient returned matrix in ${matrixElapsed}ms — ` +
+        `${matrix.threatVectors.length} threat vectors, ${matrix.regulatoryMandates.length} regulatory mandates`,
     );
 
     fingerprint = await sha256(body.prompt);
-    suite.metadata.promptFingerprint = fingerprint;
+    matrix.metadata.promptFingerprint = fingerprint;
     console.log(
       `[Generate Route] [${requestId}] SHA-256 fingerprint computed — ${fingerprint.substring(0, 12)}...`,
     );
 
-    await persistSuiteViaMCP(suite, mcpCorrelationId, requestId);
+    await persistMatrixViaMCP(matrix, mcpCorrelationId, requestId);
 
     const response = {
       success: true,
-      suite,
+      matrix,
       mcpCorrelationId,
       pipeline: buildPipelineDiag(
         startedAt,
@@ -516,7 +518,7 @@ generateRouter.post("/cancel", async (c) => {
 
 // ─── MCP Persistence Helper ────────────────────────────────────────
 
-async function persistSuiteViaMCP(
+async function persistMatrixViaMCP(
   suite: unknown,
   correlationId: string,
   requestId: string,

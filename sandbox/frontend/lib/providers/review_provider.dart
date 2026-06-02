@@ -2,9 +2,9 @@ import 'package:flutter/foundation.dart';
 import '../models/guardian_model.dart';
 import '../services/api_service.dart';
 
-/// ─── Cerberus AI — Review Provider ──────────────────────────────────────────
-/// Loads session summaries (drawer list) and full review records (detail view)
-/// for the split-panel analytical review log.
+/// ─── Cerberus FinSec — Review Provider ───────────────────────────────────────
+/// Loads session summaries (drawer list) and full audit review records
+/// (detail view) for the split-panel live terminal session audit log.
 
 class ReviewProvider extends ChangeNotifier {
   final ApiService _api;
@@ -31,24 +31,24 @@ class ReviewProvider extends ChangeNotifier {
     } on ApiException catch (e) {
       _error = e.message;
     } catch (e) {
-      _error = 'Failed to load sessions: $e';
+      _error = 'Failed to load active audits: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> loadReview(String sessionId) async {
+  Future<void> loadAuditRecord(String sessionId) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      _selected = await _api.fetchReview(sessionId);
+      _selected = await _api.fetchAuditRecord(sessionId);
     } on ApiException catch (e) {
       _error = e.message;
     } catch (e) {
-      _error = 'Failed to load review: $e';
+      _error = 'Failed to load audit record: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -57,7 +57,7 @@ class ReviewProvider extends ChangeNotifier {
 
   void selectSession(String sessionId) {
     if (_sessions.any((s) => s.sessionId == sessionId)) {
-      loadReview(sessionId);
+      loadAuditRecord(sessionId);
     }
   }
 

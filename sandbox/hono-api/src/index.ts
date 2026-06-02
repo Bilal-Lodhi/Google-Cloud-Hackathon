@@ -118,9 +118,9 @@ const isMainModule = process.argv[1]?.endsWith("index.js") ||
 if (isMainModule) {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║  🦍 Gorilla Agent Ecosystem v1.0.0                         ║
-║  Google Cloud Agent Builder | Gemini 3 Flash Preview        ║
-║  MCP Track: MongoDB Atlas                                   ║
+║  🔒 Cerberus FinSec — Insider Threat & Data Exfiltration   ║
+║  Guardian v1.0.0 | Google Cloud Financial Services Track    ║
+║  Gemini 3 Flash Preview | MongoDB Atlas                     ║
 ║─────────────────────────────────────────────────────────────║
 ║  Health:  http://localhost:${config.port}/health                   ║
 ║  API v1:  http://localhost:${config.port}/api/v1/                  ║

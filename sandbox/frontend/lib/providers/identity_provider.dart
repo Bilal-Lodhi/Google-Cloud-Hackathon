@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
 
-/// ─── Cerberus AI — Identity Provider ─────────────────────────────────────────
-/// Lightweight identity state management for hackathon demo.
-/// Stores display name + candidate ID + ephemeral session token.
+/// ─── Cerberus FinSec — Identity Provider ─────────────────────────────────────
+/// Lightweight employee/operator identity state management.
+/// Stores display name + employee ID + ephemeral session token.
 /// Persisted in-memory only; resets on app restart.
 ///
 /// In production, replace this with Firebase Auth or Google Cloud Identity Platform.
@@ -12,7 +12,7 @@ class IdentityProvider extends ChangeNotifier {
   final ApiService _apiService;
 
   String? _displayName;
-  String? _candidateId;
+  String? _employeeId;
   String? _role;
   String? _sessionToken;
   bool _isLoading = false;
@@ -23,18 +23,18 @@ class IdentityProvider extends ChangeNotifier {
   // ── Getters ─────────────────────────────────────────────────────────────────
 
   String? get displayName => _displayName;
-  String? get candidateId => _candidateId;
+  String? get employeeId => _employeeId;
   String? get role => _role;
   String? get sessionToken => _sessionToken;
   bool get isIdentified => _sessionToken != null && _displayName != null;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  // ── Register identity with the backend ──────────────────────────────────────
+  // ── Register employee identity with the backend ─────────────────────────────
 
   Future<bool> setIdentity({
     required String displayName,
-    required String candidateId,
+    required String employeeId,
     String? role,
   }) async {
     _isLoading = true;
@@ -44,14 +44,14 @@ class IdentityProvider extends ChangeNotifier {
     try {
       final response = await _apiService.setIdentity(
         displayName: displayName,
-        candidateId: candidateId,
+        employeeId: employeeId,
         role: role,
       );
 
-      _sessionToken = response.sessionToken;
-      _displayName = response.identity.displayName;
-      _candidateId = response.identity.candidateId;
-      _role = response.identity.role;
+      _sessionToken = _apiService.sessionToken;
+      _displayName = response.displayName;
+      _employeeId = response.employeeId;
+      _role = response.role;
 
       // Tell ApiService to attach this token to all future requests
       _apiService.sessionToken = _sessionToken;
@@ -76,7 +76,7 @@ class IdentityProvider extends ChangeNotifier {
   void clearIdentity() {
     _sessionToken = null;
     _displayName = null;
-    _candidateId = null;
+    _employeeId = null;
     _role = null;
     _error = null;
     _apiService.sessionToken = null;
