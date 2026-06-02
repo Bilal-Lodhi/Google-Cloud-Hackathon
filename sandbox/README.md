@@ -48,7 +48,7 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │  │  Terminal Workspace   │  │  Security Timeline + Risk Gauge         │ │
 │  │  (Left Panel)         │  │  (Right Panel)                          │ │
 │  │  - Live code monitor  │  │  - SSE-powered live updates             │ │
-│  │  - Copy detection      │  │  - Color-coded risk severity           │ │
+│  │  - Anomaly detection    │  │  - Color-coded risk severity           │ │
 │  └──────────────────────┘  │  - Expandable behavioral flags           │ │
 │                             └─────────────────────────────────────────┘ │
 └────────────────────────────────┬────────────────────────────────────────┘
@@ -89,11 +89,11 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │  └──────────────┘  └──────────────┘  └──────────────┘                  │
 │                                                                         │
 │  Exposes 9 MCP tools via HTTP adapter:                                  │
-│  • store_test_suite / get_test_suite (compliance matrices)              │
-│  • create_session (audited terminal session)                            │
+│  • store_compliance_matrix / get_compliance_matrix                      │
+│  • create_session (monitored employee session)                          │
 │  • ingest_micro_events (batch behavioral telemetry)                     │
-│  • store_suspicion_report (risk assessment)                             │
-│  • get_session_review / get_candidate_report / list_sessions            │
+│  • store_suspicion_report (threat analysis)                             │
+│  • get_session_review / get_employee_report / list_sessions             │
 │  • health_check                                                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -273,14 +273,14 @@ See `types.ts` for full schema.
 #### Gemini-First Semantic Intake Classifier
 
 Every prompt is routed through a two-stage Gemini classifier
-(`classifyAssessmentIntent`) before generation:
+(`classifyComplianceIntent`) before generation:
 
 - **Stage 1 — Meaningfulness**: Gemini determines if the input is coherent
   language (rejecting gibberish, single words, greetings, keyboard mashing)
-- **Stage 2 — Assessment Relevance**: Validates the input describes a compliance
+- **Stage 2 — Compliance Relevance**: Validates the input describes a compliance
   audit/threat matrix generation request, detecting the domain and audit type
 - Returns a verdict with `confidence` score, `detectedDomain`, and
-  `detectedAssessmentType`
+  `detectedComplianceType`
 - Robust JSON response parsing with a three-tier fallback chain: direct parse
   → `repairJson()` → `extractJsonObject()`
 - Every response includes a `pipeline` diagnostics field exposing the
@@ -398,9 +398,8 @@ Flutter compliance dashboard drawer to populate the session list.
     {
       "sessionId": "ses-clean-001",
       "employeeId": "emp-xyz",
-      "candidateId": "emp-xyz",
       "auditId": "audit-001",
-      "assessmentId": "audit-001",
+      "complianceId": "audit-001",
       "status": "active",
       "eventCount": 12,
       "pasteCount": 2,
@@ -473,7 +472,7 @@ via `POST /tools/:toolName`. All database operations route through the
 `MongoStore` class (`mongo-client.ts`) using the MongoDB Node.js native driver
 with Atlas connection pooling.
 
-### Tool 1: `store_test_suite` / `get_test_suite`
+### Tool 1: `store_compliance_matrix` / `get_compliance_matrix`
 **Purpose:** Persist and retrieve generated compliance matrix documents.
 **Store parameters:** `{ suite: GeneratedComplianceMatrix }`
 **Get parameters:** `{ suiteId: string }`
@@ -481,18 +480,18 @@ with Atlas connection pooling.
 ### Tool 2: `create_session`
 **Purpose:** Initialize an audited employee monitoring session in MongoDB.
 Persist session metadata to Atlas and return the generated document ID.
-**Parameters:** `{ sessionId, candidateId, assessmentId, problemId?, ...extraMeta }`
+**Parameters:** `{ sessionId, employeeId, complianceId, threatVectorId?, ...extraMeta }`
 **Returns:** `{ success: true, mongoDocumentId: string }`
 
 ### Tool 3: `ingest_micro_events`
 **Purpose:** Batch ingest behavioral micro-events (keystrokes, paste triggers,
 tab switches, window blur, copy attempts, fullscreen exits, etc.) from the
-assessment frontend into the session timeline.
+compliance dashboard into the session timeline.
 **Parameters:** `{ events: MicroEvent[] }`
 **Returns:** `{ success: true, processedCount: number }`
 
 ### Tool 4: `store_suspicion_report`
-**Purpose:** Persist a Gemini-generated risk assessment (suspicion report)
+**Purpose:** Persist a Gemini-generated threat analysis (suspicion report)
 against a session after the Guardian completes its real-time analysis.
 **Parameters:** `{ report: RiskAssessmentPayload }`
 **Returns:** `{ success: true, mongoDocumentId: string }`
@@ -503,10 +502,10 @@ all events, suspicion flags, and submitted code from MongoDB.
 **Parameters:** `{ sessionId: string }`
 **Returns:** `{ success, session, events, suspicionReports }`
 
-### Tool 6: `get_candidate_report`
-**Purpose:** Aggregate all suspicion reports for a specific candidate/employee
+### Tool 6: `get_employee_report`
+**Purpose:** Aggregate all suspicion reports for a specific employee
 across all sessions.
-**Parameters:** `{ candidateId: string }`
+**Parameters:** `{ employeeId: string }`
 **Returns:** `{ success: true, reports }`
 
 ### Tool 7: `list_sessions`
@@ -522,7 +521,7 @@ across all sessions.
 
 The `MongoStore` class runs `ensureIndexes()` automatically on startup,
 creating core indexes for `sessions`, `micro_events`, `suspicion_reports`,
-and `test_suites` collections if they don't already exist.
+and `compliance_matrices` collections if they don't already exist.
 
 ---
 
