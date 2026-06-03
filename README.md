@@ -42,6 +42,7 @@ TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
   - [Identity Endpoints](#-identity-endpoints-personalization-layer)
 - [Input Validation & Resilience](#-input-validation--resilience)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
+- [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
 - [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
 - [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
 - [Security — Credential Handling](#-security--credential-handling)
@@ -210,10 +211,11 @@ Google-Cloud-Hackathon/
             │   └── api_service.dart
             ├── theme/
             │   └── app_theme.dart
-            └── widgets/
-                ├── generate_panel.dart     # Compliance Matrix bottom sheet
-                ├── code_workspace_panel.dart
-                └── security_metrics_panel.dart
+    └── widgets/
+        ├── generate_panel.dart         # Compliance Matrix bottom sheet
+        ├── code_workspace_panel.dart
+        ├── security_metrics_panel.dart
+        └── risk_notification.dart     # Expandable risk notification banner + dialog (tabbed detail, paste snippets, behavioral context, keystroke metrics, animated gauge)
 ```
 
 ---
@@ -640,6 +642,51 @@ The session drawer now displays the **employee UID** as the primary list label
 (bold, weight 600) with the **session ID**, **event count**, and **status**
 as the subtitle. This makes it easier for compliance officers to identify which
 employee each session belongs to at a glance.
+
+---
+
+## 🔔 Real-Time Risk Notification UI
+
+The Flutter compliance dashboard now features a full-featured risk notification
+system that surfaces insider threat incidents in real-time:
+
+- **Risk Notification Banner**: A dismissible banner appears at the top of both
+  wide and narrow dashboard layouts when `alertTriggered` is `true` or the
+  `anomalyRiskIndex` reaches ≥ 45, tap-to-expand into the full incident dialog.
+- **Expandable Incident Dialog**: Tabbed detail view with **Flags** and
+  **Incident** tabs, collapsible paste snippet sections, code snapshot viewer,
+  behavioral context grid, keystroke metrics display, and dimension score bars
+  with color-coded severity levels.
+- **Copy Report**: One-tap copy of the full risk assessment report to clipboard
+  for compliance audit trails.
+- **Animated Risk Gauge**: A custom animated gauge widget renders the composite
+  risk score (0–100) with smooth interpolation and color transitions from green
+  (safe) → yellow (elevated) → red (critical).
+- **Full Incident Persistence**: The Guardian captures the complete incident
+  payload at detection time and persists it via MCP `store_suspicion_report` to
+  MongoDB Atlas, ensuring incidents survive browser refresh, process restart,
+  and Cloud Run cold starts.
+- **Post-Restart Rehydration**: The review endpoint (`GET /api/v1/sessions/:id`
+  and `GET /api/v1/sessions`) returns `lastRiskPayload` from in-memory state
+  with an automatic MongoDB fallback, allowing the frontend to fully rehydrate
+  incident details after any restart.
+- **Auto-Surface on Alert**: `GuardianProvider` automatically surfaces the
+  notification banner when `alertTriggered` flips `true` or the risk score
+  crosses the configurable threshold, with dismiss/expand APIs for operator
+  control.
+
+### Enriched Risk Assessment Payload
+
+The `RiskAssessmentPayload` type now carries full forensic context:
+
+| Field | Description |
+|-------|-------------|
+| `pasteSnippets` | Collapsible sections of pasted content with source metadata |
+| `codeSnapshot` | Terminal workspace code state at detection time |
+| `behavioralContext` | Grid of behavioral flags with type, severity, and timestamp |
+| `keystrokeMetrics` | Inter-keystroke timing deltas, burst patterns, and anomaly scores |
+| `incidentSummary` | Human-readable incident summary with time label |
+| `dimensionScores` | Per-dimension risk scores (paste, keystroke, tab, copy, code similarity) |
 
 ---
 

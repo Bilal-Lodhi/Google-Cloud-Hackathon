@@ -16,9 +16,11 @@ Track** — Rapid Agent Hackathon 2026.
 - [Key Features](#-key-features)
   - [Compliance Matrix Generation](#compliance-matrix-generation)
   - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
+  - [Real-Time Risk Notification UI](#real-time-risk-notification-ui)
   - [Identity Setup](#identity-setup)
 - [Input Validation & Resilience](#-input-validation--resilience)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
+- [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
 - [State Management](#-state-management)
 - [API Integration](#-api-integration)
 
@@ -58,7 +60,8 @@ lib/
 └── widgets/
     ├── generate_panel.dart       # ComplianceMatrix bottom sheet + deploy dialog
     ├── code_workspace_panel.dart # Live terminal workspace monitor
-    └── security_metrics_panel.dart # Risk gauge + behavioral flag timeline
+    ├── security_metrics_panel.dart # Risk gauge + behavioral flag timeline
+    └── risk_notification.dart     # Expandable risk banner + dialog (tabbed detail, paste snippets, behavioral context, keystroke metrics, animated gauge)
 ```
 
 ## 🚀 Getting Started
@@ -175,6 +178,32 @@ and only the event count was shown as a single-line subtitle.
 - `try/catch` on the primary fetch prevents network errors from crashing the
   drawer — the method silently falls through to the backup endpoint
 - 15-second timeout prevents the UI from hanging on slow MongoDB queries
+
+---
+
+## 🔔 Real-Time Risk Notification UI
+
+The compliance dashboard features a full risk notification system that surfaces
+insider threat incidents in real-time, implemented in `risk_notification.dart`:
+
+- **Risk Notification Banner**: A dismissible banner appears at the top of both
+  wide and narrow dashboard layouts when `alertTriggered` is `true` or the
+  `anomalyRiskIndex` reaches ≥ 45, tap-to-expand into the full incident dialog.
+- **Expandable Incident Dialog**: Tabbed detail view with **Flags** and
+  **Incident** tabs, collapsible paste snippet sections, code snapshot viewer,
+  behavioral context grid, keystroke metrics display, and dimension score bars
+  with color-coded severity levels.
+- **Copy Report**: One-tap copy of the full risk assessment report to clipboard
+  for compliance audit trails.
+- **Animated Risk Gauge**: A custom animated gauge widget renders the composite
+  risk score (0–100) with smooth interpolation and color transitions from green
+  (safe) → yellow (elevated) → red (critical).
+- **Full Incident Persistence**: Incidents survive browser refresh, process
+  restart, and Cloud Run cold starts through MCP `store_suspicion_report` to
+  MongoDB Atlas and post-restart rehydration via `GET /api/v1/sessions/:id`.
+- **Auto-Surface on Alert**: `GuardianProvider` automatically surfaces the
+  notification banner when `alertTriggered` flips `true` or the risk score
+  crosses the configurable threshold.
 
 ---
 
