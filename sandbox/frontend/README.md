@@ -4,6 +4,24 @@ Flutter-based analytical compliance dashboard for the Cerberus FinSec insider th
 & data exfiltration guardian platform. Part of the **Google Cloud Financial Services
 Track** — Rapid Agent Hackathon 2026.
 
+---
+
+## Table of Contents
+
+- [Purpose](#-purpose)
+- [Architecture](#-architecture)
+- [Getting Started](#-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Run the Dashboard](#run-the-dashboard)
+- [Key Features](#-key-features)
+  - [Compliance Matrix Generation](#compliance-matrix-generation)
+  - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
+  - [Identity Setup](#identity-setup)
+- [State Management](#-state-management)
+- [API Integration](#-api-integration)
+
+---
+
 ## 🎯 Purpose
 
 The Flutter frontend serves as the **compliance operator's control panel** for

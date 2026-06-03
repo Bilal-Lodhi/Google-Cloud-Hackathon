@@ -19,6 +19,38 @@ TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
 
 ---
 
+## Table of Contents
+
+- [How Cerberus FinSec Uses Google Cloud Agent Builder](#-how-cerberus-finsec-uses-google-cloud-agent-builder)
+- [Three Core Agents](#-three-core-agents)
+- [Architecture](#-architecture)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Install Dependencies](#1-install-dependencies)
+  - [Configure Environment](#2-configure-environment)
+  - [Set Up MongoDB Indexes](#3-set-up-mongodb-indexes-required-for-performance)
+  - [Build & Run Locally](#4-build--run-locally)
+  - [Run Flutter Compliance Dashboard](#5-run-flutter-compliance-dashboard)
+  - [Deploy to Cloud Run](#6-deploy-to-cloud-run)
+- [API Endpoints](#-api-endpoints)
+  - [`POST /api/v1/generate` — Compliance Matrix Generator](#post-apiv1generate--compliance-matrix-generator-agent-builder-webhook)
+  - [`POST /api/v1/guardian/ingest` — Insider Threat Guardian](#post-apiv1guardianingest--insider-threat--data-exfiltration-guardian)
+  - [`GET /api/v1/sessions` — List All Sessions](#get-apiv1sessions--list-all-sessions-dashboard-drawer)
+  - [`GET /api/v1/sessions/:id` — Audit Review Log](#get-apiv1sessionsid--audit-review-log)
+  - [`GET /health` — Health Check](#get-health--health-check)
+  - [Identity Endpoints](#-identity-endpoints-personalization-layer)
+- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
+- [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
+- [Security — Credential Handling](#-security--credential-handling)
+- [Agent Design Philosophy](#-agent-design-philosophy)
+- [Hackathon Compliance Checklist](#-hackathon-compliance-checklist)
+- [Flutter Compliance Dashboard](#-flutter-compliance-dashboard)
+- [License](#-license)
+- [Submission Assets](#-submission-assets)
+
+---
+
 ## 🔗 How Cerberus FinSec Uses Google Cloud Agent Builder
 
 Cerberus FinSec runs on **Google Cloud Agent Builder** as its orchestration

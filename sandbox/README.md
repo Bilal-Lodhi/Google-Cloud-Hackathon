@@ -39,6 +39,32 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 
 ---
 
+## Table of Contents
+
+- [How Cerberus FinSec Uses Google Cloud Agent Builder](#-how-cerberus-finsec-uses-google-cloud-agent-builder)
+- [Architecture Overview](#-architecture-overview)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Install Dependencies](#1-install-dependencies)
+  - [Configure Environment](#2-configure-environment)
+  - [Build & Run Locally](#3-build--run-locally)
+  - [Deploy to Cloud Run](#4-deploy-to-cloud-run)
+- [API Endpoints](#-api-endpoints)
+  - [`POST /api/v1/generate` — Compliance Matrix Generator](#post-apiv1generate--compliance-matrix-generator)
+  - [`POST /api/v1/guardian/ingest` — Insider Threat Guardian](#post-apiv1guardianingest--insider-threat--data-exfiltration-guardian)
+  - [`GET /api/v1/guardian/sessions/:sessionId` — Live Session Risk](#get-apiv1guardiansessionssessionid--live-session-risk)
+  - [`GET /api/v1/sessions` — List All Sessions](#get-apiv1sessions--list-all-sessions-dashboard-drawer)
+  - [`GET /api/v1/sessions/:sessionId` — Audit Review Log](#get-apiv1sessionssessionid--audit-review-log)
+  - [`GET /health` — Health Check](#get-health--health-check)
+  - [Identity Endpoints](#-identity-endpoints-personalization-layer)
+- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
+- [Agent Design Philosophy](#-agent-design-philosophy)
+- [Hackathon Compliance Checklist](#-hackathon-compliance-checklist)
+- [Telemetry & Testing](#-telemetry--testing)
+
+---
+
 ## 🏗 Architecture Overview
 
 ```
