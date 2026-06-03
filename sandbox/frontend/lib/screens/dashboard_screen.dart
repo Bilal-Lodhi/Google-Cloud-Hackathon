@@ -296,13 +296,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                       ),
                       title: Text(
-                        session.sessionId,
-                        style: theme.textTheme.bodyMedium,
+                        session.employeeId,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       subtitle: Text(
-                        'Events: ${session.eventCount} | $statusText',
+                        '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
                         style: theme.textTheme.bodySmall,
                         overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                       ),
                       onTap: () {
                         review.selectSession(session.sessionId);

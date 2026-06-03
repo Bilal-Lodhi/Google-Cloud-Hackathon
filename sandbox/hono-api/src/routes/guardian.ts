@@ -436,42 +436,131 @@ guardianRouter.post("/deploy", async (c) => {
 });
 
 // ─── GET /api/v1/guardian/sessions ─────────────────────────────────
-// Lists all active audited terminal sessions from the in-memory
-// registry. Populates the left drawer list in the Flutter dashboard.
+// Lists all active audited terminal sessions. Reads from the in-memory
+// registry first; when the process has restarted (empty Map), falls
+// through to the MCP list_sessions MongoDB query so the Flutter drawer
+// always shows previously deployed sessions.
 
 guardianRouter.get("/sessions", async (c) => {
-  const sessions = Array.from(activeSessions.values()).sort(
-    (a, b) => new Date(b.deployedAt).getTime() - new Date(a.deployedAt).getTime()
-  );
+  const requestId = crypto.randomUUID();
 
-  // Enrich with in-memory session store metrics (paste count, tab switches, etc.)
-  // Emits both FinSec & backward-compat field names so Flutter's
-  // SessionSummary.fromJson parses without throwing "Audit record data missing".
-  const enriched = sessions.map((s) => {
-    const state = sessionStore.get(s.sessionId);
-    return {
-      sessionId: s.sessionId,
-      employeeId: s.employeeId,
-      auditId: s.matrixId,                                  // Flutter expects auditId
-      matrixId: s.matrixId,
-      targetSystem: s.targetSystem,
-      status: s.status,
-      deployedAt: s.deployedAt,
-      startedAt: s.deployedAt,                               // Flutter SessionSummary.startedAt
-      createdAt: s.deployedAt,                               // Flutter SessionSummary.createdAt
-      riskIndex: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex,
-      peakRiskScore: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex, // Flutter expects peakRiskScore
-      eventCount: state?.events.length ?? 0,
-      pasteCount: state?.pasteCount ?? 0,
-      tabSwitchCount: state?.tabSwitchCount ?? 0,
-      alertTriggered: (state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex) >= 75,
-    };
-  });
+  // ── Path A: In-memory registry (fast path) ──
+  if (activeSessions.size > 0) {
+    const sessions = Array.from(activeSessions.values()).sort(
+      (a, b) => new Date(b.deployedAt).getTime() - new Date(a.deployedAt).getTime()
+    );
 
+    // Enrich with in-memory session store metrics (paste count, tab switches, etc.)
+    // Emits both FinSec & backward-compat field names so Flutter's
+    // SessionSummary.fromJson parses without throwing "Audit record data missing".
+    const enriched = sessions.map((s) => {
+      const state = sessionStore.get(s.sessionId);
+      return {
+        sessionId: s.sessionId,
+        employeeId: s.employeeId,
+        auditId: s.matrixId,                                  // Flutter expects auditId
+        matrixId: s.matrixId,
+        targetSystem: s.targetSystem,
+        status: s.status,
+        deployedAt: s.deployedAt,
+        startedAt: s.deployedAt,                               // Flutter SessionSummary.startedAt
+        createdAt: s.deployedAt,                               // Flutter SessionSummary.createdAt
+        riskIndex: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex,
+        peakRiskScore: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex, // Flutter expects peakRiskScore
+        eventCount: state?.events.length ?? 0,
+        pasteCount: state?.pasteCount ?? 0,
+        tabSwitchCount: state?.tabSwitchCount ?? 0,
+        alertTriggered: (state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex) >= 75,
+      };
+    });
+
+    console.log(
+      `[Guardian Route] GET /sessions — ${enriched.length} active sessions (in-memory)`
+    );
+    return c.json({ success: true, data: enriched });
+  }
+
+  // ── Path B: MongoDB fallback via MCP list_sessions (post-restart) ──
   console.log(
-    `[Guardian Route] GET /sessions — ${enriched.length} active sessions`
+    `[Guardian Route] [${requestId}] In-memory registry empty, querying MongoDB via MCP list_sessions...`
   );
-  return c.json({ success: true, data: enriched });
+
+  const listRes = await mcpFetch("list_sessions", {}, requestId);
+
+  if (listRes?.ok) {
+    try {
+      const listData = (await listRes.json()) as {
+        success: boolean;
+        data?: Array<Record<string, unknown>>;
+      };
+
+      if (listData.success && Array.isArray(listData.data) && listData.data.length > 0) {
+        // Map MongoDB documents into the Flutter SessionSummary shape.
+        // Re-hydrate the in-memory registry so subsequent calls hit the fast path.
+        const enriched = listData.data.map((doc) => {
+          const sessionId = String(doc["sessionId"] ?? doc["_id"] ?? "");
+          const employeeId = String(doc["employeeId"] ?? doc["candidateId"] ?? "unknown");
+          const matrixId = String(doc["auditId"] ?? doc["assessmentId"] ?? doc["matrixId"] ?? "");
+          const deployedAt = String(doc["deployedAt"] ?? doc["createdAt"] ?? new Date().toISOString());
+          const rawStatus = String(doc["status"] ?? "active");
+          const status = (
+            ["active", "flagged", "investigating", "cleared"].includes(rawStatus)
+              ? rawStatus
+              : "active"
+          ) as ActiveSession["status"];
+          const riskScore = Number(doc["peakRiskScore"] ?? doc["overallRiskScore"] ?? doc["riskIndex"] ?? 0);
+          const eventCount = Number(doc["eventCount"] ?? 0);
+
+          // Rebuilt ActiveSession so the registry is usable for future events
+          if (!activeSessions.has(sessionId)) {
+            activeSessions.set(sessionId, {
+              sessionId,
+              employeeId,
+              matrixId,
+              targetSystem: "",
+              status,
+              deployedAt,
+              riskIndex: riskScore,
+            });
+          }
+
+          return {
+            sessionId,
+            employeeId,
+            auditId: matrixId,
+            matrixId,
+            targetSystem: "",
+            status,
+            deployedAt,
+            startedAt: deployedAt,
+            createdAt: deployedAt,
+            riskIndex: riskScore,
+            peakRiskScore: riskScore,
+            eventCount,
+            pasteCount: Number(doc["pasteCount"] ?? 0),
+            tabSwitchCount: Number(doc["tabSwitchCount"] ?? 0),
+            alertTriggered: riskScore >= 75,
+          };
+        });
+
+        console.log(
+          `[Guardian Route] GET /sessions — ${enriched.length} sessions restored from MongoDB`
+        );
+        return c.json({ success: true, data: enriched });
+      }
+    } catch (parseError) {
+      console.error(
+        `[Guardian Route] [${requestId}] Failed to parse MCP list_sessions response:`,
+        parseError instanceof Error ? parseError.message : String(parseError)
+      );
+    }
+  }
+
+  // ── Path C: Nothing in memory AND nothing in MongoDB ──
+  console.log(
+    `[Guardian Route] [${requestId}] GET /sessions — 0 sessions (memory + MongoDB both empty)`
+  );
+  return c.json({ success: true, data: [] });
 });
 
 // ═══════════════════════════════════════════════════════════════════

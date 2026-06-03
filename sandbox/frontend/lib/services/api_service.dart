@@ -438,9 +438,35 @@ class ApiService {
   }
 
   // ── List All Active Audits (Drawer) ────────────────────────────────────────
-  /// Fetches the audit session list from GET /api/v1/sessions
-  /// which returns { success, data: [...] }.
+  /// Fetches the audit session list from GET /api/v1/sessions (MongoDB-backed
+  /// review endpoint) which returns { success, data: [...] }.
+  ///
+  /// Falls back to GET /api/v1/guardian/sessions (in-memory registry) if the
+  /// MongoDB-backed endpoint is unreachable (e.g. no MCP sidecar running).
   Future<List<SessionSummary>> fetchSessions() async {
+    // ── Primary: MongoDB-backed review endpoint (durable across restarts) ──
+    try {
+      final reviewUri = Uri.parse('$baseUrl/api/v1/sessions');
+      final reviewRes = await _client
+          .get(reviewUri, headers: _commonHeaders())
+          .timeout(const Duration(seconds: 15));
+
+      if (reviewRes.statusCode == 200) {
+        final reviewBody = jsonDecode(reviewRes.body) as Map<String, dynamic>;
+        final data = reviewBody['data'] as List<dynamic>? ?? [];
+        if (data.isNotEmpty) {
+          return data
+              .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
+              .toList();
+        }
+        // data is empty — fall through to in-memory guardian endpoint
+        // (MongoDB MCP may be unreachable, but in-memory sessions exist)
+      }
+    } catch (_) {
+      // Fall through to in-memory backup endpoint
+    }
+
+    // ── Fallback: in-memory guardian session registry ──
     final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions');
     final response = await _client
         .get(uri, headers: _commonHeaders())
