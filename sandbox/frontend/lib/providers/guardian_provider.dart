@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import '../models/guardian_model.dart';
 import '../services/api_service.dart';
+import '../widgets/risk_notification.dart';
 
 /// ─── Cerberus FinSec — Guardian Provider ─────────────────────────────────────
 /// Manages the SSE stream of risk assessment payloads from the Real-Time
@@ -16,11 +17,20 @@ class GuardianProvider extends ChangeNotifier {
   String? _error;
   bool _isStreaming = false;
 
+  /// The most recent risk payload shown to the user via the notification banner.
+  /// Once the user dismisses it, this is set back to null until the next detection.
+  RiskAssessmentPayload? _latestRiskPayload;
+  bool _notificationDismissed = false;
+
   GuardianProvider(this._api);
 
   List<RiskAssessmentPayload> get events => List.unmodifiable(_events);
   String? get error => _error;
   bool get isStreaming => _isStreaming;
+
+  /// Latest undismissed risk notification for the banner overlay.
+  RiskAssessmentPayload? get latestRiskPayload =>
+      _notificationDismissed ? null : _latestRiskPayload;
 
   double get latestRiskScore {
     if (_events.isEmpty) return 0.0;
@@ -69,15 +79,35 @@ class GuardianProvider extends ChangeNotifier {
 
   /// Submits employee terminal behavioral telemetry events for server-side
   /// analysis. Returns the full ingestion response with anomaly scoring.
-  /// Pushes the response's riskPayload into the live events stream so the
-  /// middle-panel metrics dashboard updates in real time.
+  /// Pushes the response's riskPayload into the live events stream and surfaces
+  /// it as the latest notification banner payload if an alert was triggered.
   Future<IngestMicroEventResponse> ingestEvents(List<MicroEvent> events) async {
     final result = await _api.ingestMicroEvents(events);
     if (result.riskPayload != null) {
       _events.add(result.riskPayload!);
+
+      // Surface notification only for elevated/critical alerts (score ≥ 45)
+      if (result.alertTriggered || result.riskPayload!.overallRiskScore >= 45) {
+        _latestRiskPayload = result.riskPayload;
+        _notificationDismissed = false;
+      }
       notifyListeners();
     }
     return result;
+  }
+
+  /// Dismisses the current risk notification banner. It will only re-appear
+  /// when a new risk detection event arrives.
+  void dismissNotification() {
+    _notificationDismissed = true;
+    notifyListeners();
+  }
+
+  /// Opens the current notification as the full expandable dialog.
+  void openLatestNotification(BuildContext context) {
+    if (_latestRiskPayload != null) {
+      showRiskNotificationDialog(context, _latestRiskPayload!);
+    }
   }
 
   /// Deploys a guardrail matrix to a live employee terminal session.

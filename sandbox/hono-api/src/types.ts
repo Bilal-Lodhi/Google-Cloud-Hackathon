@@ -194,6 +194,50 @@ export interface RiskAssessmentPayload {
   exfiltrationReport: ExfiltrationReport | null;
   behavioralAnomalies: BehavioralAnomaly[];
   generatedAt: string;          // ISO-8601
+
+  // ── Full Incident Context (persisted to MongoDB, retrievable on review) ──
+  /** Full paste content blobs collected from PASTE/PASTE_TRIGGER events at detection time */
+  pasteSnippets?: string[];
+  /** Complete terminal workspace code snapshot at the moment of risk detection */
+  codeSnapshot?: string;
+  /** Running behavioral counter tallies at detection time */
+  behavioralContext?: BehavioralContext;
+  /** Keystroke rhythm metrics at detection time */
+  keystrokeMetrics?: KeystrokeMetrics;
+  /** Short 1-2 line summary message for the risk notification popup */
+  incidentSummary?: string;
+  /** Employee display name shown in the risk notification UI */
+  employeeDisplayName?: string;
+  /** Human-readable timestamp label for the notification ("Today 10:32 AM") */
+  incidentTimeLabel?: string;
+  /** Total lines in pasted content (useful for displaying "101 lines detected") */
+  pasteLineCount?: number;
+  /** Total character count across all paste snippets */
+  pasteCharCount?: number;
+}
+
+/** Running counter snapshot of behavioral deviations at risk-detection time. */
+export interface BehavioralContext {
+  /** Total paste events in the session so far */
+  totalPasteEvents: number;
+  /** Total tab-switch / window-blur events */
+  totalFocusBreaches: number;
+  /** Total copy-attempt events */
+  totalCopyAttempts: number;
+  /** Total dev-tools-open events */
+  totalDevToolsOpens: number;
+  /** Total fullscreen-exit events */
+  totalFullscreenExits: number;
+}
+
+/** Keystroke timing summary captured at risk-detection time. */
+export interface KeystrokeMetrics {
+  /** Average inter-key delay (ms) across recent keystrokes */
+  averageInterKeyMs: number;
+  /** Minimum inter-key delay observed */
+  minInterKeyMs: number;
+  /** Number of keystrokes faster than the anomaly threshold */
+  burstKeystrokes: number;
 }
 
 export interface RiskFlag {

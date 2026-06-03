@@ -191,11 +191,75 @@ guardianRouter.post("/ingest", async (c) => {
             `— score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
         );
 
-        // Enrich with session context
+        // ── Enrich with complete incident context for MongoDB persistence ──
         riskPayload.sessionId = sessionId;
         riskPayload.employeeId = session.employeeId;
         riskPayload.auditId = session.auditId;
         riskPayload.generatedAt = new Date().toISOString();
+
+        // Capture full paste content blobs (including multi-line pastes)
+        riskPayload.pasteSnippets = session.events
+          .filter(
+            (e) =>
+              (e.eventType === "PASTE_TRIGGER" && e.payload.pasteContent) ||
+              (e.eventType === "PASTE" && e.payload.newText)
+          )
+          .map((e) => e.payload.pasteContent ?? e.payload.newText ?? "");
+        riskPayload.pasteLineCount = riskPayload.pasteSnippets
+          .reduce((sum, s) => sum + (s.match(/\n/g) ?? []).length + 1, 0);
+        riskPayload.pasteCharCount = riskPayload.pasteSnippets
+          .reduce((sum, s) => sum + s.length, 0);
+
+        // Full terminal code snapshot at detection time
+        riskPayload.codeSnapshot = session.currentCode;
+
+        // Behavioral context snapshot (all micro-event counters)
+        riskPayload.behavioralContext = {
+          totalPasteEvents: session.pasteCount,
+          totalFocusBreaches: session.tabSwitchCount + session.fullscreenExitCount,
+          totalCopyAttempts: session.copyAttemptCount,
+          totalDevToolsOpens: session.events.filter(
+            (e) => e.eventType === "DEVELOPER_TOOLS_OPEN"
+          ).length,
+          totalFullscreenExits: session.fullscreenExitCount,
+        };
+
+        // Keystroke rhythm metrics
+        const km = computeKeystrokeMetrics(session.keystrokeDeltas);
+        riskPayload.keystrokeMetrics = {
+          averageInterKeyMs: km.avgDeltaMs,
+          minInterKeyMs: km.minDeltaMs,
+          burstKeystrokes: session.keystrokeDeltas.filter(
+            (d) => d < config.security.minHumanKeystrokeMs
+          ).length,
+        };
+
+        // Build a short 1-2 line incident summary for the notification UI
+        const summaryParts: string[] = [];
+        if (riskPayload.pasteSnippets && riskPayload.pasteSnippets.length > 0) {
+          summaryParts.push(
+            `${riskPayload.pasteSnippets.length} paste event${riskPayload.pasteSnippets.length > 1 ? "s" : ""} (${riskPayload.pasteLineCount} lines)`
+          );
+        }
+        if (session.tabSwitchCount > 0) {
+          summaryParts.push(`${session.tabSwitchCount} tab switch${session.tabSwitchCount > 1 ? "es" : ""}`);
+        }
+        if (session.copyAttemptCount > 0) {
+          summaryParts.push(`${session.copyAttemptCount} copy attempt${session.copyAttemptCount > 1 ? "s" : ""}`);
+        }
+        if (session.fullscreenExitCount > 0) {
+          summaryParts.push(`fullscreen exit detected`);
+        }
+        if (hasAnomalousKeystrokes(session.keystrokeDeltas)) {
+          summaryParts.push("anomalous keystroke rhythm");
+        }
+        riskPayload.incidentSummary =
+          summaryParts.length > 0
+            ? summaryParts.join(" · ")
+            : `Risk score: ${riskPayload.overallRiskScore.toFixed(0)}%`;
+        riskPayload.employeeDisplayName =
+          `Operator ${session.employeeId}`;
+        riskPayload.incidentTimeLabel = formatLocalTime(new Date());
 
         session.lastRiskPayload = riskPayload;
         sessionStore.set(sessionId, session);
@@ -759,6 +823,33 @@ function hasAnomalousKeystrokes(deltas: number[]): boolean {
   if (deltas.length < 10) return false;
   const fastCount = deltas.filter((d) => d < config.security.minHumanKeystrokeMs).length;
   return fastCount / deltas.length > 0.3;
+}
+
+/**
+ * Formats a Date into a human-readable local time label like "Today 10:32 AM"
+ * or "Jun 3, 10:32 AM" for the risk notification popup UI.
+ */
+function formatLocalTime(date: Date): string {
+  const now = new Date();
+  const isToday =
+    now.getFullYear() === date.getFullYear() &&
+    now.getMonth() === date.getMonth() &&
+    now.getDate() === date.getDate();
+
+  const hours = date.getHours();
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+
+  const timeStr = `${hour12}:${minutes} ${ampm}`;
+
+  if (isToday) return `Today ${timeStr}`;
+
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${monthNames[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
 }
 
 function computeKeystrokeMetrics(deltas: number[]): {

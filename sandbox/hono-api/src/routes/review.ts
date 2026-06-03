@@ -289,11 +289,15 @@ reviewRouter.get("/:sessionId", async (c) => {
 
     // Build timeline from micro-events
     const timeline = events.map((event) => {
+      // Guard against malformed MongoDB documents where eventType is
+      // missing or null — this prevents "Cannot read property 'replace'
+      // of undefined" crashes on sessions with incomplete event data.
+      const rawType = event.eventType ?? "";
       let severity: "info" | "warning" | "critical" = "info";
-      let label = event.eventType;
+      let label = rawType;
       let detail = "";
 
-      switch (event.eventType) {
+      switch (rawType) {
         case "KEYSTROKE":
           label = "Keystroke";
           detail = `Delta: ${event.payload?.deltaMs ?? "N/A"}ms`;
@@ -355,10 +359,13 @@ reviewRouter.get("/:sessionId", async (c) => {
           severity = "critical";
           break;
         default:
-          // Catch CODE_EDIT / unknown types gracefully
+          // Catch CODE_EDIT / unknown types gracefully — guard against
+          // malformed MongoDB documents where eventType is missing/null.
           label = event.eventType
-            .replace(/_/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase());
+            ? event.eventType
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase())
+            : "Unknown Event";
           detail = JSON.stringify(event.payload ?? {});
           severity = "info";
           break;
@@ -391,9 +398,15 @@ reviewRouter.get("/:sessionId", async (c) => {
       status = "investigating";
     }
 
-    // Map risk reports to RiskAssessmentPayload type
+    // Map risk reports to RiskAssessmentPayload type.
+    // Flags are stored in MongoDB as full objects from Gemini's JSON output,
+    // NOT as plain strings. We map Gemini's field names to the contract expected
+    // by the Flutter AnomalyFlag.fromJson parser.
     const riskSummary: RiskAssessmentPayload[] = reports.map((r) => {
-      const rawFlags = (r["flags"] as string[]) ?? [];
+      const rawFlags: Record<string, unknown>[] =
+        Array.isArray(r["flags"]) ? (r["flags"] as Record<string, unknown>[]) : [];
+      const generatedAt =
+        (r["generatedAt"] as string) ?? new Date().toISOString();
       return {
         riskAssessmentId:
           (r["suspicionId"] as string) ?? crypto.randomUUID(),
@@ -402,13 +415,20 @@ reviewRouter.get("/:sessionId", async (c) => {
         auditId: (r["assessmentId"] as string) ?? session.assessmentId,
         overallRiskScore: (r["overallRiskScore"] as number) ?? (r["overallScore"] as number) ?? 0,
         flags: rawFlags.map((f) => ({
-          flagType: f,
-          severity: "medium" as const,
-          sourceEventId: "",
-          description: f,
-          confidence: 1,
+          // The Hono types use {flagType, severity, sourceEventId, ...}
+          // Flutter's AnomalyFlag.fromJson maps them as:
+          //   flagId    ← sourceEventId
+          //   category  ← flagType
+          //   confidence← confidence
+          //   description← description
+          //   evidenceSnippet ← description (best available evidence)
+          flagType: (f["flagType"] as string) ?? (f["flagId"] as string) ?? "unknown",
+          severity: ((f["severity"] as string) ?? "medium") as "low" | "medium" | "high" | "critical",
+          sourceEventId: (f["sourceEventId"] as string) ?? "",
+          description: (f["description"] as string) ?? (f["flagType"] as string) ?? "",
+          confidence: (f["confidence"] as number) ?? 1,
           timestamp:
-            (r["generatedAt"] as string) ?? new Date().toISOString(),
+            (f["timestamp"] as string) ?? generatedAt,
         })),
         exfiltrationReport:
           (r["plagiarismReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
@@ -416,8 +436,7 @@ reviewRouter.get("/:sessionId", async (c) => {
         behavioralAnomalies:
           (r["behavioralAnomalies"] as RiskAssessmentPayload["behavioralAnomalies"]) ??
           [],
-        generatedAt:
-          (r["generatedAt"] as string) ?? new Date().toISOString(),
+        generatedAt,
       };
     });
 
@@ -429,11 +448,9 @@ reviewRouter.get("/:sessionId", async (c) => {
       terminalContent: session.submittedCode ?? "",
       timeline,
       riskSummary,
-      finalRiskScore: hasSubmission
-        ? lastReport
-          ? Math.max(0, 100 - ((lastReport["overallRiskScore"] as number) ?? 0))
-          : null
-        : null,
+      finalRiskScore: lastReport
+        ? (lastReport["overallRiskScore"] as number) ?? 0
+        : 0,
     };
 
     console.log(

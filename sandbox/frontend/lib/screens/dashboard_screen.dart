@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../providers/health_provider.dart';
 import '../providers/identity_provider.dart';
+import '../providers/guardian_provider.dart';
 import '../providers/review_provider.dart';
 import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
 import '../widgets/code_workspace_panel.dart';
+import '../widgets/risk_notification.dart';
 
 /// ─── Cerberus FinSec — Dashboard Screen ───────────────────────────────────────
 /// Root shell after identity setup. Provides:
@@ -365,13 +367,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
         // Right panel — Live Threat Telemetry
-        Expanded(
-          flex: 4,
-          child: Container(
-            color: theme.colorScheme.surface,
-            child: const SecurityMetricsPanel(),
-          ),
-        ),
+        Expanded(flex: 4, child: _buildTelemetryPanel(theme)),
       ],
     );
   }
@@ -379,9 +375,16 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── Narrow Layout (< 900px) ────────────────────────────────────────────────
   Widget _buildNarrowLayout() {
     final theme = Theme.of(context);
+    final guardian = context.watch<GuardianProvider>();
 
     return Column(
       children: [
+        // ── Risk Notification Banner ──
+        if (guardian.latestRiskPayload != null)
+          RiskNotificationBanner(
+            payload: guardian.latestRiskPayload!,
+            onDismiss: () => guardian.dismissNotification(),
+          ),
         TabBar(
           controller: _tabController,
           labelColor: theme.colorScheme.primary,
@@ -394,7 +397,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: const [CodeWorkspacePanel(), SecurityMetricsPanel()],
+            children: [
+              const CodeWorkspacePanel(),
+              const SecurityMetricsPanel(),
+            ],
           ),
         ),
       ],
@@ -405,5 +411,27 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (score >= 75) return Colors.red;
     if (score >= 40) return Colors.orange;
     return theme.colorScheme.primary;
+  }
+
+  /// Builds the telemetry panel (SecurityMetricsPanel) with an optional
+  /// risk notification banner layered on top when a threat is detected.
+  Widget _buildTelemetryPanel(ThemeData theme) {
+    final guardian = context.watch<GuardianProvider>();
+
+    return Container(
+      color: theme.colorScheme.surface,
+      child: Column(
+        children: [
+          // ── Risk Notification Banner (reactive to GuardianProvider) ──
+          if (guardian.latestRiskPayload != null)
+            RiskNotificationBanner(
+              payload: guardian.latestRiskPayload!,
+              onDismiss: () => guardian.dismissNotification(),
+            ),
+          // ── Security Metrics Timeline ──
+          Expanded(child: SecurityMetricsPanel()),
+        ],
+      ),
+    );
   }
 }

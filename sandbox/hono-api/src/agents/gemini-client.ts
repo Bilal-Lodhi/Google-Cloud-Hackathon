@@ -243,8 +243,53 @@ export class GeminiClient {
             `elapsed=${elapsedMs}ms textLength=${text?.length ?? 0}`
         );
         if (!text || text.trim().length === 0) {
-          console.error(`[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} — EMPTY response`);
-          lastError = new Error("Vertex AI returned empty response text");
+          console.warn(
+            `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} — EMPTY response (structured output not supported by model). Retrying WITHOUT responseMimeType...`
+          );
+          // gemini-3-flash-preview often returns empty when responseMimeType
+          // is set. Retry the call without it — our parsers handle raw/markdown-
+          // fenced JSON just fine.
+          const retryStart = Date.now();
+          const retryResult = await ai.models.generateContent({
+            model: this.model,
+            contents: [{ role: "user", parts: [{ text: userMessage }] }],
+            config: {
+              systemInstruction: {
+                role: "user",
+                parts: [{ text: systemInstruction }],
+              },
+              temperature: this.temperature,
+              maxOutputTokens: this.maxOutputTokens,
+              topP: 0.95,
+              topK: 40,
+              // Omitting responseMimeType to avoid structured-output empty response
+              safetySettings: [
+                {
+                  category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                },
+                {
+                  category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                },
+                {
+                  category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                },
+                {
+                  category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                },
+              ],
+            },
+          });
+          const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+          console.log(
+            `[Cerberus FinSec CISO] [Vertex] Retry (no responseMimeType) — elapsed=${Date.now() - retryStart}ms textLength=${retryText.length}`
+          );
+          if (retryText && retryText.trim().length > 0) return retryText;
+
+          lastError = new Error("Vertex AI returned empty response text (with and without responseMimeType)");
           continue;
         }
         return text;

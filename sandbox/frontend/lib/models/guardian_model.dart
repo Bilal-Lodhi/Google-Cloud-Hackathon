@@ -35,6 +35,35 @@ class RiskAssessmentPayload {
   /// Raw Gemini reasoning trace (audit trail).
   final String auditReasoning;
 
+  // ── Full Incident Context (persisted to MongoDB, retrievable on review) ──
+
+  /// Full paste content blobs collected at detection time.
+  final List<String> pasteSnippets;
+
+  /// Complete terminal workspace code snapshot at the moment of risk detection.
+  final String codeSnapshot;
+
+  /// Running behavioral counter tallies at detection time.
+  final BehavioralContext? behavioralContext;
+
+  /// Keystroke rhythm metrics at detection time.
+  final KeystrokeMetrics? keystrokeMetrics;
+
+  /// Short 1-2 line summary message for the risk notification popup.
+  final String incidentSummary;
+
+  /// Employee display name shown in the risk notification UI.
+  final String employeeDisplayName;
+
+  /// Human-readable timestamp label for the notification ("Today 10:32 AM").
+  final String incidentTimeLabel;
+
+  /// Total lines in pasted content.
+  final int pasteLineCount;
+
+  /// Total character count across all paste snippets.
+  final int pasteCharCount;
+
   const RiskAssessmentPayload({
     required this.riskAssessmentId,
     required this.employeeId,
@@ -45,6 +74,15 @@ class RiskAssessmentPayload {
     required this.dimensionScores,
     required this.flags,
     required this.auditReasoning,
+    this.pasteSnippets = const [],
+    this.codeSnapshot = '',
+    this.behavioralContext,
+    this.keystrokeMetrics,
+    this.incidentSummary = '',
+    this.employeeDisplayName = '',
+    this.incidentTimeLabel = '',
+    this.pasteLineCount = 0,
+    this.pasteCharCount = 0,
   });
 
   factory RiskAssessmentPayload.fromJson(Map<String, dynamic> json) {
@@ -62,6 +100,75 @@ class RiskAssessmentPayload {
           .map((f) => AnomalyFlag.fromJson(f as Map<String, dynamic>))
           .toList(),
       auditReasoning: json['auditReasoning'] as String? ?? '',
+      pasteSnippets:
+          (json['pasteSnippets'] as List<dynamic>?)
+              ?.map((s) => s as String)
+              .toList() ??
+          [],
+      codeSnapshot: json['codeSnapshot'] as String? ?? '',
+      behavioralContext: json['behavioralContext'] != null
+          ? BehavioralContext.fromJson(
+              json['behavioralContext'] as Map<String, dynamic>,
+            )
+          : null,
+      keystrokeMetrics: json['keystrokeMetrics'] != null
+          ? KeystrokeMetrics.fromJson(
+              json['keystrokeMetrics'] as Map<String, dynamic>,
+            )
+          : null,
+      incidentSummary: json['incidentSummary'] as String? ?? '',
+      employeeDisplayName: json['employeeDisplayName'] as String? ?? '',
+      incidentTimeLabel: json['incidentTimeLabel'] as String? ?? '',
+      pasteLineCount: json['pasteLineCount'] as int? ?? 0,
+      pasteCharCount: json['pasteCharCount'] as int? ?? 0,
+    );
+  }
+}
+
+/// Running counter snapshot of behavioral deviations at risk-detection time.
+class BehavioralContext {
+  final int totalPasteEvents;
+  final int totalFocusBreaches;
+  final int totalCopyAttempts;
+  final int totalDevToolsOpens;
+  final int totalFullscreenExits;
+
+  const BehavioralContext({
+    required this.totalPasteEvents,
+    required this.totalFocusBreaches,
+    required this.totalCopyAttempts,
+    required this.totalDevToolsOpens,
+    required this.totalFullscreenExits,
+  });
+
+  factory BehavioralContext.fromJson(Map<String, dynamic> json) {
+    return BehavioralContext(
+      totalPasteEvents: json['totalPasteEvents'] as int? ?? 0,
+      totalFocusBreaches: json['totalFocusBreaches'] as int? ?? 0,
+      totalCopyAttempts: json['totalCopyAttempts'] as int? ?? 0,
+      totalDevToolsOpens: json['totalDevToolsOpens'] as int? ?? 0,
+      totalFullscreenExits: json['totalFullscreenExits'] as int? ?? 0,
+    );
+  }
+}
+
+/// Keystroke timing summary captured at risk-detection time.
+class KeystrokeMetrics {
+  final double averageInterKeyMs;
+  final double minInterKeyMs;
+  final int burstKeystrokes;
+
+  const KeystrokeMetrics({
+    required this.averageInterKeyMs,
+    required this.minInterKeyMs,
+    required this.burstKeystrokes,
+  });
+
+  factory KeystrokeMetrics.fromJson(Map<String, dynamic> json) {
+    return KeystrokeMetrics(
+      averageInterKeyMs: (json['averageInterKeyMs'] as num?)?.toDouble() ?? 0.0,
+      minInterKeyMs: (json['minInterKeyMs'] as num?)?.toDouble() ?? 0.0,
+      burstKeystrokes: json['burstKeystrokes'] as int? ?? 0,
     );
   }
 }
@@ -114,12 +221,26 @@ class AnomalyFlag {
   });
 
   factory AnomalyFlag.fromJson(Map<String, dynamic> json) {
+    // The Hono API returns Gemini's raw field names: {flagType, severity,
+    // sourceEventId, description, confidence, timestamp}. Map them to
+    // the Flutter model's internal field names.
+    final flagType =
+        json['flagType'] as String? ?? json['category'] as String? ?? '';
+    final sourceEventId =
+        json['sourceEventId'] as String? ?? json['flagId'] as String? ?? '';
     return AnomalyFlag(
-      flagId: json['flagId'] as String? ?? '',
-      category: json['category'] as String? ?? '',
+      // Use sourceEventId as the primary identifier for the flag.
+      flagId: sourceEventId.isNotEmpty ? sourceEventId : flagType,
+      // Use flagType as the category dimension label.
+      category: flagType,
       description: json['description'] as String? ?? '',
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
-      evidenceSnippet: json['evidenceSnippet'] as String? ?? '',
+      // Best available evidence text — use description as the evidence snippet
+      // since the API doesn't send a dedicated evidenceSnippet field.
+      evidenceSnippet:
+          json['evidenceSnippet'] as String? ??
+          json['description'] as String? ??
+          '',
     );
   }
 }
