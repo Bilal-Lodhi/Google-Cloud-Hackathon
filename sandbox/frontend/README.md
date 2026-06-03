@@ -18,6 +18,7 @@ Track** — Rapid Agent Hackathon 2026.
   - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
   - [Identity Setup](#identity-setup)
 - [Input Validation & Resilience](#-input-validation--resilience)
+- [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
 - [State Management](#-state-management)
 - [API Integration](#-api-integration)
 
@@ -126,6 +127,54 @@ A separate `_showErrorDialog` intercepts submissions where the target system
 dropdown has not been selected, preventing the API from receiving `""` as
 a system context value. This dialog must be explicitly dismissed before the
 operator can retry.
+
+---
+
+## 🔄 Session Persistence & Post-Restart Recovery
+
+The compliance dashboard maintains session state across server restarts and
+Cloud Run cold starts through a client-side fallback chain in `ApiService`:
+
+### Dual-Endpoint Fetch Strategy
+
+`ApiService.fetchSessions()` uses a primary + fallback pattern for populating
+the session drawer:
+
+1. **Primary — `GET /api/v1/sessions`** (MongoDB-backed review endpoint):
+   Queries the durable review endpoint with a 15-second timeout. This endpoint
+   reads directly from MongoDB Atlas via the MCP sidecar, so data survives
+   server restarts, Cloud Run scale-to-zero wake events, and container evictions.
+
+2. **Fallback — `GET /api/v1/guardian/sessions`** (in-memory registry):
+   If the review endpoint returns empty data or times out (e.g., MCP sidecar
+   unreachable, MongoDB connectivity issues), the client automatically calls
+   the Guardian's hybrid session endpoint. This endpoint first checks the
+   in-memory `activeSessions` Map, and if empty, falls through to the MCP
+   `list_sessions` MongoDB query — ensuring sessions are visible even when
+   only the Hono API is reachable.
+
+### Drawer UX Enhancement
+
+The session drawer (`dashboard_screen.dart`) now displays:
+
+- **Primary label**: `employeeId` (bold, `FontWeight.w600`) — the employee UID
+  is shown as the main list item title, making it immediately clear which
+  employee each session belongs to
+- **Subtitle**: Session ID + event count + status (e.g., "active", "flagged")
+  on two lines with `maxLines: 2` and `TextOverflow.ellipsis`
+
+This replaces the previous behavior where `sessionId` was the primary label
+and only the event count was shown as a single-line subtitle.
+
+### Resilience Guarantees
+
+- The dashboard drawer populates correctly after a server restart — sessions
+  deploy one minute ago are still visible
+- If MongoDB is unreachable but in-memory sessions exist, the fallback
+  endpoint ensures the drawer is not empty
+- `try/catch` on the primary fetch prevents network errors from crashing the
+  drawer — the method silently falls through to the backup endpoint
+- 15-second timeout prevents the UI from hanging on slow MongoDB queries
 
 ---
 

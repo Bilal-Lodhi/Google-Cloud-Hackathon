@@ -59,6 +59,7 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
   - [`GET /health` — Health Check](#get-health--health-check)
   - [Identity Endpoints](#-identity-endpoints-personalization-layer)
 - [Input Validation & Resilience](#-input-validation--resilience)
+- [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
 - [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
 - [Agent Design Philosophy](#-agent-design-philosophy)
 - [Hackathon Compliance Checklist](#-hackathon-compliance-checklist)
@@ -561,6 +562,56 @@ validation: an empty audit prompt triggers an inline error message ("Audit
 prompt is required") with dedicated error border styling. The required field
 indicator (`*`) is displayed next to the "Audit Prompt" label. The error
 clears automatically when the user begins typing.
+
+---
+
+## 🔄 Session Persistence & Post-Restart Recovery
+
+Deployed compliance sessions survive server restarts and Cloud Run cold starts
+through a three-tier recovery pipeline:
+
+### Tier 1 — In-Memory Fast Path
+
+`GET /api/v1/guardian/sessions` first reads from the in-memory `activeSessions`
+Map. When the server process is live and sessions have been deployed, this
+returns sub-millisecond responses with enriched risk metrics (paste count, tab
+switches, current risk score). This is the default path for active session
+monitoring.
+
+### Tier 2 — MongoDB Fallback via MCP
+
+When the in-memory registry is empty (after server restart, Cloud Run scale-to-zero
+wake, or container eviction), the Guardian route automatically falls through to
+`list_sessions` — the MCP tool that queries MongoDB Atlas. Every previously deployed
+session document is deserialized back into an `ActiveSession` and re-hydrated into
+the `activeSessions` Map. This means:
+
+- The Flutter dashboard drawer immediately shows all previously deployed sessions
+- Subsequent micro-event ingest calls succeed because the session exists in-memory
+- Session lifecycle state (`active`, `flagged`, `investigating`, `cleared`) is
+  coerced with type-safe validation
+- All enriched fields (`peakRiskScore`, `eventCount`, `pasteCount`, `tabSwitchCount`)
+  are reconstructed from the MongoDB document
+
+### Tier 3 — Flutter Client Fallback
+
+The Flutter `ApiService.fetchSessions()` implements a parallel fallback chain:
+
+1. **Primary**: `GET /api/v1/sessions` (MongoDB-backed review endpoint, durable
+   across restarts) with a 15-second timeout
+2. **Fallback**: If the review endpoint returns empty data or times out, the
+   client calls `GET /api/v1/guardian/sessions` (the in-memory/MongoDB hybrid
+   endpoint described above)
+
+This ensures the session drawer populates even when the MCP sidecar or MongoDB
+Atlas is unreachable — as long as in-memory sessions exist.
+
+### Flutter Dashboard UX
+
+The session drawer now displays the **employee UID** as the primary list label
+(bold, weight 600) with the **session ID**, **event count**, and **status**
+as the subtitle. This makes it easier for compliance officers to identify which
+employee each session belongs to at a glance.
 
 ---
 
