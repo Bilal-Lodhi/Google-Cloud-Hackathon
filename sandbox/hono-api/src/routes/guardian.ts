@@ -81,6 +81,14 @@ guardianRouter.post("/ingest", async (c) => {
     );
   }
 
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    console.warn(`[Guardian Route] [${requestId}] Validation failed: body is not a valid object`);
+    return c.json(
+      { success: false, error: "Request body must be a valid JSON object", correlationId: requestId },
+      400
+    );
+  }
+
   if (!body.events || !Array.isArray(body.events) || body.events.length === 0) {
     console.warn(`[Guardian Route] [${requestId}] Validation failed: empty/missing events array`);
     return c.json(
@@ -171,30 +179,37 @@ guardianRouter.post("/ingest", async (c) => {
       );
 
       const analysisStartMs = Date.now();
-      riskPayload = await gemini.analyzeSuspicion(
-        session.currentCode,
-        pasteContents,
-        keystrokeMetrics,
-        referenceCompletions
-      );
-      console.log(
-        `[Guardian Route] [${requestId}] Gemini risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
-          `— score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
-      );
+      try {
+        riskPayload = await gemini.analyzeSuspicion(
+          session.currentCode,
+          pasteContents,
+          keystrokeMetrics,
+          referenceCompletions
+        );
+        console.log(
+          `[Guardian Route] [${requestId}] Gemini risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
+            `— score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
+        );
 
-      // Enrich with session context
-      riskPayload.sessionId = sessionId;
-      riskPayload.employeeId = session.employeeId;
-      riskPayload.auditId = session.auditId;
-      riskPayload.generatedAt = new Date().toISOString();
+        // Enrich with session context
+        riskPayload.sessionId = sessionId;
+        riskPayload.employeeId = session.employeeId;
+        riskPayload.auditId = session.auditId;
+        riskPayload.generatedAt = new Date().toISOString();
 
-      session.lastRiskPayload = riskPayload;
-      sessionStore.set(sessionId, session);
+        session.lastRiskPayload = riskPayload;
+        sessionStore.set(sessionId, session);
 
-      alertTriggered = riskPayload.overallRiskScore > 50;
+        alertTriggered = riskPayload.overallRiskScore > 50;
 
-      // ── Persist risk report to MongoDB (timeout-isolated) ──
-      await persistRiskReport(riskPayload, requestId);
+        // ── Persist risk report to MongoDB (timeout-isolated, non-fatal) ──
+        await persistRiskReport(riskPayload, requestId);
+      } catch (analysisError) {
+        const msg = analysisError instanceof Error ? analysisError.message : "Unknown analysis error";
+        console.error(
+          `[Guardian Route] [${requestId}] Gemini analysis FAILED (non-fatal) — ${msg}`
+        );
+      }
     }
 
     const response: IngestMicroEventResponse = {
@@ -303,6 +318,13 @@ guardianRouter.post("/deploy", async (c) => {
   } catch {
     return c.json(
       { success: false, error: "Invalid JSON body", correlationId: requestId },
+      400
+    );
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return c.json(
+      { success: false, error: "Request body must be a valid JSON object", correlationId: requestId },
       400
     );
   }
@@ -526,8 +548,11 @@ async function ensureMongoSession(
       "create_session",
       {
         sessionId,
+        candidateId: primaryEvent.employeeId ?? "unknown",
         employeeId: primaryEvent.employeeId ?? "unknown",
+        assessmentId: primaryEvent.auditId ?? "unknown",
         auditId: primaryEvent.auditId ?? "unknown",
+        status: "in_progress",
       },
       requestId
     );
@@ -553,7 +578,7 @@ async function persistRiskReport(
   report: RiskAssessmentPayload,
   requestId: string
 ): Promise<void> {
-  const res = await mcpFetch("store_risk_report", { report }, requestId);
+  const res = await mcpFetch("store_suspicion_report", { report }, requestId);
   if (!res?.ok) {
     console.warn(`[Guardian MCP] [${requestId}] Failed to persist risk report (non-fatal)`);
   }

@@ -280,6 +280,7 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
   static const double _riskFloor = 0.1;
 
   bool _hasDeployed = false;
+  String? _promptError;
 
   static const _targetSystemOptions = <Map<String, String>>[
     {'value': '', 'label': '- Select target system -'},
@@ -463,7 +464,10 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
 
   void _onGenerate() {
     final prompt = _promptController.text;
-    if (prompt.trim().isEmpty) return;
+    if (prompt.trim().isEmpty) {
+      setState(() => _promptError = 'Audit prompt is required');
+      return;
+    }
     if (_selectedTargetSystem.isEmpty) {
       _showErrorDialog(
         'Please select a target system (e.g. "SWIFT Gateway") before generating.',
@@ -798,21 +802,46 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
               },
             ),
             const SizedBox(height: 16),
-            _buildSheetLabel(theme, 'Audit Prompt', Icons.edit_note),
+            _buildSheetLabel(
+              theme,
+              'Audit Prompt',
+              Icons.edit_note,
+              isRequired: true,
+            ),
             const SizedBox(height: 8),
             TextField(
               controller: _promptController,
               minLines: 2,
               maxLines: 5,
+              onChanged: (_) {
+                if (_promptError != null) {
+                  setState(() => _promptError = null);
+                }
+              },
               decoration: InputDecoration(
                 hintText:
                     'e.g. "Audit the SWIFT Gateway and Core Trading Ledger for AML and SOX compliance violations"',
                 hintMaxLines: 2,
+                errorText: _promptError,
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerHighest,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                   borderSide: BorderSide.none,
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: theme.colorScheme.error,
+                    width: 1.5,
+                  ),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: theme.colorScheme.error,
+                    width: 2,
+                  ),
                 ),
               ),
             ),
@@ -1811,10 +1840,15 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
     }
   }
 
-  Widget _buildSheetLabel(ThemeData theme, String label, IconData icon) {
+  Widget _buildSheetLabel(
+    ThemeData theme,
+    String label,
+    IconData icon, {
+    bool isRequired = false,
+  }) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        Icon(icon, size: 17, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
         Text(
           label,
@@ -1823,6 +1857,18 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
             fontWeight: FontWeight.w600,
           ),
         ),
+        if (isRequired)
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Text(
+              ' *',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+          ),
       ],
     );
   }

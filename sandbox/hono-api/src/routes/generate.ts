@@ -128,6 +128,25 @@ generateRouter.post("/", async (c) => {
     );
   }
 
+  // ── Guard against null, arrays, primitives ──────────────────────
+  // `c.req.json()` can return `null` for a literal `null` body or
+  // other non-object parse results.  Property access on null would
+  // crash the event loop with an unhandled TypeError.
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    console.warn(
+      `[Generate Route] [${requestId}] Validation failed: body is ${body === null ? "null" : typeof body} (expected object)`,
+    );
+    return c.json(
+      {
+        success: false,
+        error:
+          "Request body must be a valid JSON object with 'prompt' and 'roleContext' fields",
+        correlationId: requestId,
+      },
+      400,
+    );
+  }
+
   if (
     !body.prompt ||
     typeof body.prompt !== "string" ||
@@ -468,6 +487,18 @@ generateRouter.post("/cancel", async (c) => {
       {
         success: false,
         error: "Invalid JSON body — request must have a 'generationRequestId' field",
+        correlationId: requestId,
+      },
+      400,
+    );
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return c.json(
+      {
+        success: false,
+        error:
+          "Request body must be a valid JSON object with a 'generationRequestId' field",
         correlationId: requestId,
       },
       400,

@@ -389,11 +389,14 @@ export class GeminiClient {
         ((metadata?.["promptTokens"] as number) ?? 0) + ((metadata?.["completionTokens"] as number) ?? 0),
     };
 
+    const matrixId =
+      (metadata?.["matrixId"] as string) ??
+      (metadata?.["suiteId"] as string) ??
+      crypto.randomUUID();
+
     const matrixMetadata: MatrixMetadata = {
-      matrixId:
-        (metadata?.["matrixId"] as string) ??
-        (metadata?.["suiteId"] as string) ??
-        crypto.randomUUID(),
+      matrixId,
+      suiteId: matrixId,
       generatedAt: (metadata?.["generatedAt"] as string) ?? new Date().toISOString(),
       modelVersion: this.model,
       promptFingerprint: (metadata?.["promptFingerprint"] as string) ?? "",

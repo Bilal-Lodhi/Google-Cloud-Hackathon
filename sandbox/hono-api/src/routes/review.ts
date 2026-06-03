@@ -149,7 +149,7 @@ reviewRouter.get("/", async (c) => {
                 timestamp: string;
               }>;
               suspicionReports?: Array<{
-                overallScore: number;
+                overallRiskScore: number;
               }>;
             };
             if (reviewData.success && reviewData.events) {
@@ -179,7 +179,7 @@ reviewRouter.get("/", async (c) => {
               suspicionScore =
                 reviewData.suspicionReports[
                   reviewData.suspicionReports.length - 1
-                ].overallScore;
+                ].overallRiskScore;
             }
           } catch {
             // Silently fall back — counts will be zero
@@ -381,7 +381,7 @@ reviewRouter.get("/:sessionId", async (c) => {
       reports.length > 0 ? reports[reports.length - 1] : null;
     const isFlagged =
       lastReport !== null &&
-      (lastReport["overallScore"] as number) > 50;
+      (lastReport["overallRiskScore"] as number) > 50;
 
     if (hasSubmission && isFlagged) {
       status = "flagged";
@@ -400,7 +400,7 @@ reviewRouter.get("/:sessionId", async (c) => {
         sessionId: (r["sessionId"] as string) ?? sessionId,
         employeeId: (r["candidateId"] as string) ?? session.candidateId,
         auditId: (r["assessmentId"] as string) ?? session.assessmentId,
-        overallRiskScore: (r["overallScore"] as number) ?? 0,
+        overallRiskScore: (r["overallRiskScore"] as number) ?? (r["overallScore"] as number) ?? 0,
         flags: rawFlags.map((f) => ({
           flagType: f,
           severity: "medium" as const,
@@ -431,7 +431,7 @@ reviewRouter.get("/:sessionId", async (c) => {
       riskSummary,
       finalRiskScore: hasSubmission
         ? lastReport
-          ? Math.max(0, 100 - ((lastReport["overallScore"] as number) ?? 0))
+          ? Math.max(0, 100 - ((lastReport["overallRiskScore"] as number) ?? 0))
           : null
         : null,
     };

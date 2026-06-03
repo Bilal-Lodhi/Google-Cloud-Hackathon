@@ -43,6 +43,7 @@ export interface GeneratedComplianceMatrix {
 
 export interface MatrixMetadata {
   matrixId: string;
+  suiteId: string;              // Unique suite ID for MongoDB indexing (mirrors matrixId)
   generatedAt: string;          // ISO-8601
   modelVersion: string;         // e.g. "gemini-3-flash-preview"
   promptFingerprint: string;    // SHA-256 of the input prompt

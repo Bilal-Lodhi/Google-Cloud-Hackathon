@@ -26,28 +26,46 @@ const identityRouter = new Hono();
  * Returns an ephemeral session token.
  */
 identityRouter.post("/set", async (c) => {
-  const body = await c.req.json();
-
-  const displayName = (body["displayName"] as string)?.trim();
-  const employeeId = (body["employeeId"] as string)?.trim();
-
-  if (!displayName || displayName.length === 0) {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
     return c.json(
-      { success: false, error: "displayName is required" },
-      400
+      {
+        success: false,
+        error:
+          "Invalid JSON body — request must be valid JSON with 'displayName' and 'employeeId' fields",
+      },
+      400,
     );
   }
-  if (!employeeId || employeeId.length === 0) {
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return c.json(
-      { success: false, error: "employeeId is required" },
-      400
+      {
+        success: false,
+        error:
+          "Request body must be a valid JSON object with 'displayName' and 'employeeId' fields",
+      },
+      400,
     );
+  }
+
+  const bodyObj = body as Record<string, unknown>;
+  const displayName = (bodyObj["displayName"] as string)?.trim();
+  const employeeId = (bodyObj["employeeId"] as string)?.trim();
+
+  if (!displayName || displayName.length === 0) {
+    return c.json({ success: false, error: "displayName is required" }, 400);
+  }
+  if (!employeeId || employeeId.length === 0) {
+    return c.json({ success: false, error: "employeeId is required" }, 400);
   }
 
   const identity: IdentityPayload = {
     displayName,
     employeeId,
-    role: (body["role"] as string | undefined)?.trim() || undefined,
+    role: (bodyObj["role"] as string | undefined)?.trim() || undefined,
   };
 
   const sessionToken = crypto.randomUUID();
@@ -60,7 +78,7 @@ identityRouter.post("/set", async (c) => {
   };
 
   console.log(
-    `[identity] Registered → "${displayName}" (${employeeId}) token=${sessionToken.slice(0, 8)}...`
+    `[identity] Registered → "${displayName}" (${employeeId}) token=${sessionToken.slice(0, 8)}...`,
   );
 
   return c.json(response, 201);
@@ -77,7 +95,7 @@ identityRouter.get("/me", (c) => {
   if (!token) {
     return c.json(
       { success: false, error: "X-Session-Token header is required" },
-      401
+      401,
     );
   }
 
@@ -85,7 +103,7 @@ identityRouter.get("/me", (c) => {
   if (!identity) {
     return c.json(
       { success: false, error: "Invalid or expired session token" },
-      401
+      401,
     );
   }
 
