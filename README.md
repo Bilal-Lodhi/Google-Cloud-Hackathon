@@ -40,6 +40,7 @@ TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
   - [`GET /api/v1/sessions/:id` — Audit Review Log](#get-apiv1sessionsid--audit-review-log)
   - [`GET /health` — Health Check](#get-health--health-check)
   - [Identity Endpoints](#-identity-endpoints-personalization-layer)
+- [Input Validation & Resilience](#-input-validation--resilience)
 - [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
 - [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
 - [Security — Credential Handling](#-security--credential-handling)
@@ -516,6 +517,78 @@ automatically attached to all subsequent API calls via `X-Session-Token` header.
 #### `GET /api/v1/identity/me` — Get Current Identity
 
 Returns the currently registered identity for the session.
+
+---
+
+## 🛡️ Input Validation & Resilience
+
+All API endpoints implement defense-in-depth input validation to guard against
+malformed or unexpected request bodies. The following hardening measures are
+applied uniformly across the Hono API layer:
+
+### Request Body Type Guards
+
+Every endpoint validates that `c.req.json()` returns a proper JSON object
+before destructuring. Requests with `null`, primitives, or arrays as the
+top-level body receive a structured **400 Bad Request** response with a
+descriptive error message and a UUIDv4 `correlationId`. This prevents
+unhandled `TypeError` crashes caused by property access on non-object values.
+
+The following endpoints have validated body guards:
+- **`POST /api/v1/generate`** — rejects non-object bodies; validates
+  `prompt` and `roleContext` fields
+- **`POST /api/v1/generate/cancel`** — rejects non-object bodies; validates
+  `generationRequestId`
+- **`POST /api/v1/guardian/ingest`** — rejects non-object bodies; validates
+  `events` array
+- **`POST /api/v1/guardian/deploy`** — rejects non-object bodies; validates
+  `employeeUid`, `sessionId`, `matrixId`, `targetSystem`
+- **`POST /api/v1/identity/set`** — rejects non-object bodies with a
+  `try/catch` on `c.req.json()` parse; validates `displayName` and
+  `employeeId`
+
+### Non-Fatal Gemini Analysis Errors
+
+The Guardian's Gemini-powered risk analysis (`guardian/ingest`) is wrapped in
+a `try/catch` block. If Gemini analysis fails (network interruption, model
+overload, transient Vertex AI error), the error is logged with a
+`[Guardian Route] Gemini analysis FAILED (non-fatal)` message and the ingest
+request completes gracefully without a risk payload. The session and events
+are still persisted — the frontend simply won't display a live risk score
+for that batch.
+
+This ensures a single Gemini outage does not block the entire telemetry
+ingestion pipeline.
+
+### MCP Tool Name Consistency
+
+The `persistRiskReport()` function in the Guardian route now calls
+`store_suspicion_report` (matching the MCP server's registered tool name).
+This fixes a previous HTTP 404 mismatch where the route called
+`store_risk_report` which did not exist in the MCP tool registry.
+
+### Field Normalization: `overallRiskScore`
+
+All review endpoints (`GET /api/v1/sessions` and `GET /api/v1/sessions/:id`)
+now reference the `overallRiskScore` field from suspicion reports, with a
+backward-compatible fallback to the legacy `overallScore` field. This
+normalization aligns the API contract with the `RiskAssessmentPayload` type.
+
+### Session Creation Enrichment
+
+The Guardian's `ensureMongoSession()` now passes enriched fields to the MCP
+`create_session` tool:
+- `candidateId` — mirrors `employeeId` for Atlas indexing
+- `assessmentId` — mirrors `auditId` for Atlas indexing
+- `status: "in_progress"` — explicit session lifecycle state
+
+### Frontend Prompt Validation
+
+The Flutter compliance dashboard's `GeneratePanel` now performs client-side
+validation: an empty audit prompt triggers an inline error message ("Audit
+prompt is required") with dedicated error border styling. The required field
+indicator (`*`) is displayed next to the "Audit Prompt" label. The error
+clears automatically when the user begins typing.
 
 ---
 

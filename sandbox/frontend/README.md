@@ -17,6 +17,7 @@ Track** — Rapid Agent Hackathon 2026.
   - [Compliance Matrix Generation](#compliance-matrix-generation)
   - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
   - [Identity Setup](#identity-setup)
+- [Input Validation & Resilience](#-input-validation--resilience)
 - [State Management](#-state-management)
 - [API Integration](#-api-integration)
 
@@ -96,6 +97,37 @@ The `security_metrics_panel.dart` widget displays:
 The `identity_setup_screen.dart` allows operators to register employee personas with:
 - Display name, employee ID, and role
 - Automatic session token attachment via `X-Session-Token` header
+
+## 🛡️ Input Validation & Resilience
+
+### Prompt Validation in GeneratePanel
+
+The compliance matrix generation bottom sheet (`generate_panel.dart`) performs
+client-side input validation before dispatching API requests:
+
+- **Empty Prompt Guard**: If the audit prompt field is empty when the operator
+  taps "Generate," an inline error message ("Audit prompt is required") is
+  displayed directly below the text field with dedicated `errorBorder` and
+  `focusedErrorBorder` styling using the Material 3 theme's `error` color.
+- **Required Field Indicator**: The "Audit Prompt" label displays a red
+  asterisk (`*`) suffix, clearly marking it as a mandatory field for
+  operators.
+- **Auto-Clearing Error**: The error text clears automatically as soon as the
+  operator begins typing in the prompt field, providing a non-blocking UX
+  that does not require a separate dismiss action.
+- **Unchanged API-Level Guards**: The backend (`POST /api/v1/generate`)
+  independently validates the `prompt` field and returns a structured 400
+  error with `correlationId` if validation fails, ensuring defense-in-depth
+  against both empty strings and non-object bodies.
+
+### Target System Validation
+
+A separate `_showErrorDialog` intercepts submissions where the target system
+dropdown has not been selected, preventing the API from receiving `""` as
+a system context value. This dialog must be explicitly dismissed before the
+operator can retry.
+
+---
 
 ## 📦 State Management
 
