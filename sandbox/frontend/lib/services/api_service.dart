@@ -441,10 +441,16 @@ class ApiService {
   /// Fetches the audit session list from GET /api/v1/sessions (MongoDB-backed
   /// review endpoint) which returns { success, data: [...] }.
   ///
-  /// Falls back to GET /api/v1/guardian/sessions (in-memory registry) if the
-  /// MongoDB-backed endpoint is unreachable (e.g. no MCP sidecar running).
+  /// Also queries GET /api/v1/guardian/sessions (in-memory registry) and merges
+  /// counts so the drawer always shows accurate event/paste/tab metrics. MCP
+  /// enrichment in the review endpoint can silently zero out counts on timeout;
+  /// the guardian in-memory data is the authoritative live source.
   Future<List<SessionSummary>> fetchSessions() async {
-    // ── Primary: MongoDB-backed review endpoint (durable across restarts) ──
+    // Fetch from BOTH endpoints concurrently
+    List<SessionSummary> reviewSessions = [];
+    List<SessionSummary> guardianSessions = [];
+
+    // ── MongoDB-backed review endpoint (durable, has all session history) ──
     try {
       final reviewUri = Uri.parse('$baseUrl/api/v1/sessions');
       final reviewRes = await _client
@@ -454,31 +460,92 @@ class ApiService {
       if (reviewRes.statusCode == 200) {
         final reviewBody = jsonDecode(reviewRes.body) as Map<String, dynamic>;
         final data = reviewBody['data'] as List<dynamic>? ?? [];
-        if (data.isNotEmpty) {
-          return data
-              .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
-              .toList();
-        }
-        // data is empty — fall through to in-memory guardian endpoint
-        // (MongoDB MCP may be unreachable, but in-memory sessions exist)
+        reviewSessions = data
+            .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
+            .toList();
       }
     } catch (_) {
-      // Fall through to in-memory backup endpoint
+      // Non-fatal — guardian in-memory data will serve as fallback
     }
 
-    // ── Fallback: in-memory guardian session registry ──
-    final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions');
-    final response = await _client
-        .get(uri, headers: _commonHeaders())
-        .timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'Sessions list failed');
+    // ── In-memory guardian session registry (authoritative live counts) ──
+    try {
+      final guardianUri = Uri.parse('$baseUrl/api/v1/guardian/sessions');
+      final guardianRes = await _client
+          .get(guardianUri, headers: _commonHeaders())
+          .timeout(const Duration(seconds: 15));
+
+      if (guardianRes.statusCode == 200) {
+        final guardianBody =
+            jsonDecode(guardianRes.body) as Map<String, dynamic>;
+        final items = guardianBody['data'] as List<dynamic>? ?? [];
+        guardianSessions = items
+            .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {
+      // Non-fatal
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final items = body['data'] as List<dynamic>? ?? [];
-    return items
-        .map((s) => SessionSummary.fromJson(s as Map<String, dynamic>))
-        .toList();
+
+    // ── Merge: guardian in-memory counts override review MCP-enriched counts ──
+    // The guardian endpoint always has accurate event/paste/tab counts because
+    // they come from the in-memory sessionStore (never times out).
+    final guardianBySessionId = <String, SessionSummary>{};
+    for (final gs in guardianSessions) {
+      guardianBySessionId[gs.sessionId] = gs;
+    }
+
+    if (reviewSessions.isEmpty && guardianSessions.isEmpty) {
+      return []; // Both endpoints empty/failed
+    }
+
+    // Start with review sessions (durable, has all session metadata)
+    // then overlay guardian in-memory counts where available.
+    final merged = reviewSessions.map((rs) {
+      final gs = guardianBySessionId[rs.sessionId];
+      if (gs == null) return rs; // No in-memory enrichment available
+      // Override live counters from the in-memory session store
+      return SessionSummary(
+        sessionId: rs.sessionId,
+        employeeId: rs.employeeId,
+        employeeUid: rs.employeeUid.isNotEmpty
+            ? rs.employeeUid
+            : gs.employeeUid,
+        auditId: rs.auditId.isNotEmpty ? rs.auditId : gs.auditId,
+        matrixId: rs.matrixId.isNotEmpty ? rs.matrixId : gs.matrixId,
+        targetSystem: rs.targetSystem.isNotEmpty
+            ? rs.targetSystem
+            : gs.targetSystem,
+        status: rs.status,
+        startedAt: rs.startedAt.isNotEmpty ? rs.startedAt : gs.startedAt,
+        createdAt: rs.createdAt.isNotEmpty ? rs.createdAt : gs.createdAt,
+        lastEventTimestamp: rs.lastEventTimestamp.isNotEmpty
+            ? rs.lastEventTimestamp
+            : gs.lastEventTimestamp,
+        peakRiskScore: gs.peakRiskScore > rs.peakRiskScore
+            ? gs.peakRiskScore
+            : rs.peakRiskScore,
+        suspicionScore: gs.suspicionScore > rs.suspicionScore
+            ? gs.suspicionScore
+            : rs.suspicionScore,
+        eventCount: gs.eventCount > 0 ? gs.eventCount : rs.eventCount,
+        pasteCount: gs.pasteCount > 0 ? gs.pasteCount : rs.pasteCount,
+        tabSwitchCount: gs.tabSwitchCount > 0
+            ? gs.tabSwitchCount
+            : rs.tabSwitchCount,
+        alertTriggered: gs.alertTriggered || rs.alertTriggered,
+      );
+    }).toList();
+
+    // Append any guardian-only sessions not in the review list
+    final reviewIds = merged.map((s) => s.sessionId).toSet();
+    for (final gs in guardianSessions) {
+      if (!reviewIds.contains(gs.sessionId)) {
+        merged.insert(0, gs); // Prepend most recent at top
+      }
+    }
+
+    return merged;
   }
 
   void dispose() {

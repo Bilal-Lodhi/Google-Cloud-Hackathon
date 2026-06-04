@@ -8,6 +8,12 @@
 // sandbox/hono-api/src/types.ts exactly (camelCase).
 // The API response envelope is:
 //   { success: bool, matrix: ComplianceMatrix, mcpCorrelationId: string }
+//
+// DEFENSIVE PARSING: All .map() chains over List<dynamic> include a
+// .where((e) => e is Map<String, dynamic>) guard so that Gemini
+// returning a plain string in place of an array-of-objects does not
+// crash the Flutter app (TypeError: type 'String' is not a subtype
+// of type 'Map<String, dynamic>').
 
 class ComplianceMatrix {
   final MatrixMetadata metadata;
@@ -30,17 +36,21 @@ class ComplianceMatrix {
         (json['metadata'] as Map<String, dynamic>?) ?? const {},
       ),
       targetSystems: (json['targetSystems'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map(
             (r) => TargetSystemDescriptor.fromJson(r as Map<String, dynamic>),
           )
           .toList(),
       regulatoryMandates: (json['regulatoryMandates'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((c) => RegulatoryMandate.fromJson(c as Map<String, dynamic>))
           .toList(),
       threatVectors: (json['threatVectors'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((p) => ThreatVector.fromJson(p as Map<String, dynamic>))
           .toList(),
       auditTrailMatrices: (json['auditTrailMatrices'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((m) => AuditTrailMatrix.fromJson(m as Map<String, dynamic>))
           .toList(),
     );
@@ -117,9 +127,9 @@ class TargetSystemDescriptor {
       systemId: json['systemId'] as String? ?? '',
       title: json['title'] as String? ?? '',
       criticalityTier: json['criticalityTier'] as String? ?? '',
-      requiredMandateIds: List<String>.from(
-        (json['requiredMandateIds'] as List<dynamic>?) ?? [],
-      ),
+      requiredMandateIds: (json['requiredMandateIds'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .toList(),
     );
   }
 }
@@ -147,7 +157,11 @@ class RegulatoryMandate {
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       weight: (json['weight'] as num?)?.toDouble() ?? 0.0,
+      // DEFENSIVE: Gemini may return a plain string like "Req 3.4 (Encryption)"
+      // instead of an array of objects. The .where() guard prevents:
+      //   TypeError: type 'String' is not a subtype of type 'Map<String, dynamic>'
       subMandates: (json['subMandates'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((s) => RegulatoryMandate.fromJson(s as Map<String, dynamic>))
           .toList(),
     );
@@ -196,9 +210,11 @@ class ThreatVector {
       language: json['language'] as String?,
       starterCode: json['starterCode'] as String?,
       scenarios: (json['scenarios'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((t) => PenetrationScenario.fromJson(t as Map<String, dynamic>))
           .toList(),
       options: (json['options'] as List<dynamic>? ?? [])
+          .where((e) => e is Map<String, dynamic>)
           .map((o) => MitigationOption.fromJson(o as Map<String, dynamic>))
           .toList(),
       expectedAnswer: json['expectedAnswer'] as String?,
@@ -295,12 +311,12 @@ class AuditTrailMatrix {
       vectorId: json['vectorId'] as String? ?? '',
       trailName: json['trailName'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      logSources: List<String>.from(
-        (json['logSources'] as List<dynamic>?) ?? [],
-      ),
-      detectionRules: List<String>.from(
-        (json['detectionRules'] as List<dynamic>?) ?? [],
-      ),
+      logSources: (json['logSources'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .toList(),
+      detectionRules: (json['detectionRules'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .toList(),
       severityMapping: json['severityMapping'] as String? ?? '',
       escalationThreshold: json['escalationThreshold'] as int? ?? 0,
     );

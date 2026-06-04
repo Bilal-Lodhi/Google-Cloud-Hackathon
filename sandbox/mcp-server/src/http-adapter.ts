@@ -75,6 +75,22 @@ const tools: Record<string, ToolHandler> = {
     return { success: true, mongoDocumentId: docId };
   },
 
+  update_session_counts: async (body) => {
+    const sessionId = body["sessionId"] as string;
+    const counts = body["counts"] as Record<string, number>;
+    if (!sessionId) throw new Error("Missing required parameter: sessionId");
+    if (!counts || typeof counts !== "object")
+      throw new Error("Missing required parameter: counts");
+    await store.updateSessionCounts(sessionId, {
+      eventCount: counts.eventCount ?? 0,
+      pasteCount: counts.pasteCount,
+      tabSwitchCount: counts.tabSwitchCount,
+      copyAttemptCount: counts.copyAttemptCount,
+      peakRiskScore: counts.peakRiskScore,
+    });
+    return { success: true };
+  },
+
   get_session_review: async (body) => {
     const sessionId = body["sessionId"] as string;
     if (!sessionId) throw new Error("Missing required parameter: sessionId");

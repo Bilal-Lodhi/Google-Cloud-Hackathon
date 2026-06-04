@@ -1,6 +1,6 @@
 /**
  * Route: POST /api/v1/guardian/ingest
- * Feature 2 — REAL-TIME INSIDER THREAT & DATA EXFILTRATION GUARDIAN
+ * Feature 2 - REAL-TIME INSIDER THREAT & DATA EXFILTRATION GUARDIAN
  *
  * Streaming micro-event ingestion handler. Accepts batches of telemetry
  * (paste triggers, code deltas, tab switches, copy attempts) and delegates
@@ -9,13 +9,13 @@
  *
  * Sessions are persisted to MongoDB via the MCP HTTP adapter sidecar.
  *
- * ═══════════════════════════════════════════════════════════════════
+ * ===================================================================
  * ENTERPRISE HARDENING (2026-05-28):
  *   - Every MCP HTTP call is wrapped in an isolated AbortController
  *     timeout (MCP_TIMEOUT_MS) so that a slow MongoDB Atlas connection
  *     never starves the ingestion loop.
  *   - Deep observability telemetry logs at every pipeline milestone.
- * ═══════════════════════════════════════════════════════════════════
+ * ===================================================================
  */
 
 import { Hono } from "hono";
@@ -28,12 +28,12 @@ const guardianRouter = new Hono();
 const config = loadConfig();
 const gemini = new GeminiClient(config);
 
-// ─── MCP Constants ──────────────────────────────────────────────
+// --- MCP Constants --------------------------------------------------
 
 /** MCP HTTP Adapter base URL (sidecar on port 3001). */
 const MCP_BASE = process.env["MCP_URL"] ?? "http://localhost:3001";
 
-// ─── Active Session Registry (in-memory, resets on restart) ─────
+// --- Active Session Registry (in-memory, resets on restart) ---------
 // This list powers the left drawer in the Flutter dashboard.
 // Sessions are persisted to MongoDB for durability; this registry
 // provides sub-millisecond lookups for the live UI.
@@ -47,7 +47,7 @@ const activeSessions = new Map<string, ActiveSession>();
  */
 const MCP_TIMEOUT_MS = 5_000;
 
-// ─── In-Memory Session Store (replaced by MongoDB via MCP in production) ──
+// --- In-Memory Session Store (replaced by MongoDB via MCP in production) --
 
 interface SessionState {
   sessionId: string;
@@ -65,7 +65,7 @@ interface SessionState {
 
 const sessionStore = new Map<string, SessionState>();
 
-// ─── POST /api/v1/guardian/ingest ─────────────────────────────────
+// --- POST /api/v1/guardian/ingest ---------------------------------------
 
 guardianRouter.post("/ingest", async (c) => {
   const requestId = crypto.randomUUID();
@@ -111,15 +111,30 @@ guardianRouter.post("/ingest", async (c) => {
   let alertTriggered = false;
 
   try {
-    // ── Step 1: Ensure session exists in MongoDB (timeout-isolated) ──
+    // Step 1: Ensure session exists in MongoDB (timeout-isolated)
     console.log(`[Guardian Route] [${requestId}] Ensuring session ${sessionId} in MongoDB...`);
     await ensureMongoSession(sessionId, primaryEvent, requestId);
 
-    // ── Step 2: Persist micro-events to MongoDB (timeout-isolated) ──
+    // Step 2: Persist micro-events to MongoDB (timeout-isolated)
     console.log(`[Guardian Route] [${requestId}] Persisting ${processedCount} events to MongoDB...`);
     await persistMicroEvents(body.events, requestId);
 
-    // ── Step 3: In-memory processing (real-time guardian analysis) ──
+    // Step 2b: Update live aggregate counts on the MongoDB session document
+    // so the left-drawer session list shows accurate eventCount even after restart
+    const sessionLive = sessionStore.get(sessionId);
+    if (sessionLive) {
+      await updateMongoSessionCounts(
+        sessionId,
+        sessionLive.events.length,
+        sessionLive.pasteCount,
+        sessionLive.tabSwitchCount,
+        sessionLive.copyAttemptCount,
+        sessionLive.lastRiskPayload?.overallRiskScore ?? 0,
+        requestId
+      );
+    }
+
+    // Step 3: In-memory processing (real-time guardian analysis)
     console.log(`[Guardian Route] [${requestId}] Processing ${processedCount} events in-memory...`);
     for (const event of body.events) {
       processEvent(event);
@@ -131,8 +146,8 @@ guardianRouter.post("/ingest", async (c) => {
       return c.json({ success: false, error: `Session ${sessionId} not found after processing` }, 404);
     }
 
-    // ── Step 4: Suspicion analysis threshold check ──
-    // ANY single large paste (≥100 chars inserted) triggers immediate analysis
+    // Step 4: Suspicion analysis threshold check
+    // ANY single large paste (>=100 chars inserted) triggers immediate analysis
     const hasLargePaste = body.events.some(
       (e) =>
         e.eventType === "PASTE" &&
@@ -147,7 +162,7 @@ guardianRouter.post("/ingest", async (c) => {
       hasAnomalousKeystrokes(session.keystrokeDeltas);
 
     console.log(
-      `[Guardian Route] [${requestId}] Suspicion check — ` +
+      `[Guardian Route] [${requestId}] Suspicion check - ` +
         `largePaste=${hasLargePaste} ` +
         `pastes=${session.pasteCount}/${config.security.maxPasteEventsPerSession} ` +
         `tabs=${session.tabSwitchCount} fullscreen=${session.fullscreenExitCount} ` +
@@ -166,7 +181,7 @@ guardianRouter.post("/ingest", async (c) => {
         )
         .map((e) => e.payload.pasteContent ?? e.payload.newText ?? "");
 
-      // Gather reference completions — in production this queries a cache of
+      // Gather reference completions - in production this queries a cache of
       // Gemini outputs for the same problem from the MCP MongoDB store
       const referenceCompletions = await getReferenceCompletions(
         session.auditId,
@@ -175,7 +190,7 @@ guardianRouter.post("/ingest", async (c) => {
 
       console.log(
         `[Guardian Route] [${requestId}] Invoking GeminiClient.analyzeSuspicion ` +
-          `— codeLen=${session.currentCode.length} pastes=${pasteContents.length} ` +
+          `- codeLen=${session.currentCode.length} pastes=${pasteContents.length} ` +
           `refCompletions=${referenceCompletions.length} keystrokeAvg=${keystrokeMetrics.avgDeltaMs.toFixed(1)}ms`
       );
 
@@ -189,10 +204,10 @@ guardianRouter.post("/ingest", async (c) => {
         );
         console.log(
           `[Guardian Route] [${requestId}] Gemini risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
-            `— score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
+            `- score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
         );
 
-        // ── Enrich with complete incident context for MongoDB persistence ──
+        // Enrich with complete incident context for MongoDB persistence
         riskPayload.sessionId = sessionId;
         riskPayload.employeeId = session.employeeId;
         riskPayload.auditId = session.auditId;
@@ -256,7 +271,7 @@ guardianRouter.post("/ingest", async (c) => {
         }
         riskPayload.incidentSummary =
           summaryParts.length > 0
-            ? summaryParts.join(" · ")
+            ? summaryParts.join(" . ")
             : `Risk score: ${riskPayload.overallRiskScore.toFixed(0)}%`;
         riskPayload.employeeDisplayName =
           `Operator ${session.employeeId}`;
@@ -267,12 +282,12 @@ guardianRouter.post("/ingest", async (c) => {
 
         alertTriggered = riskPayload.overallRiskScore > 50;
 
-        // ── Persist risk report to MongoDB (timeout-isolated, non-fatal) ──
+        // Persist risk report to MongoDB (timeout-isolated, non-fatal)
         await persistRiskReport(riskPayload, requestId);
       } catch (analysisError) {
         const msg = analysisError instanceof Error ? analysisError.message : "Unknown analysis error";
         console.error(
-          `[Guardian Route] [${requestId}] Gemini analysis FAILED (non-fatal) — ${msg}`
+          `[Guardian Route] [${requestId}] Gemini analysis FAILED (non-fatal) - ${msg}`
         );
       }
     }
@@ -286,14 +301,14 @@ guardianRouter.post("/ingest", async (c) => {
     };
 
     console.log(
-      `[Guardian Route] [${requestId}] COMPLETE — processedCount=${processedCount} ` +
+      `[Guardian Route] [${requestId}] COMPLETE - processedCount=${processedCount} ` +
         `alertTriggered=${alertTriggered} score=${riskPayload?.overallRiskScore ?? "N/A"}`
     );
     return c.json(response, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown guardian error";
     console.error(
-      `[Guardian Route] [${requestId}] FAILURE — ${message}`,
+      `[Guardian Route] [${requestId}] FAILURE - ${message}`,
       error instanceof Error ? error.stack : ""
     );
     return c.json(
@@ -303,7 +318,7 @@ guardianRouter.post("/ingest", async (c) => {
   }
 });
 
-// ─── GET /api/v1/guardian/sessions/:sessionId ─────────────────────
+// --- GET /api/v1/guardian/sessions/:sessionId ---------------------------
 
 guardianRouter.get("/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
@@ -337,8 +352,7 @@ guardianRouter.get("/sessions/:sessionId", async (c) => {
     });
   }
 
-  // Fallback: session deployed but no events ingested yet — return minimal data
-  // from the activeSessions registry so the frontend doesn't crash with 404.
+  // Fallback: session deployed but no events ingested yet - return minimal data
   if (activeSession) {
     return c.json({
       success: true,
@@ -368,10 +382,8 @@ guardianRouter.get("/sessions/:sessionId", async (c) => {
   return c.json({ success: false, error: "Session not found" }, 404);
 });
 
-// ─── POST /api/v1/guardian/deploy ─────────────────────────────────
+// --- POST /api/v1/guardian/deploy ---------------------------------------
 // Deploys a guardrail by creating a new audited terminal session.
-// Persists to MongoDB via the MCP sidecar and adds to the active
-// session registry so the Flutter left drawer list populates instantly.
 
 guardianRouter.post("/deploy", async (c) => {
   const requestId = crypto.randomUUID();
@@ -394,9 +406,8 @@ guardianRouter.post("/deploy", async (c) => {
     );
   }
 
-  // Validate required fields
   const { employeeUid, sessionId, matrixId, targetSystem } = body;
-  const employeeId = employeeUid; // Map from updated contract field name
+  const employeeId = employeeUid;
   const missing: string[] = [];
   if (!employeeUid?.trim()) missing.push("employeeUid");
   if (!sessionId?.trim()) missing.push("sessionId");
@@ -404,7 +415,7 @@ guardianRouter.post("/deploy", async (c) => {
   if (!targetSystem?.trim()) missing.push("targetSystem");
 
   if (missing.length > 0) {
-    console.warn(`[Guardian Route] [${requestId}] Validation failed — missing: [${missing.join(", ")}]`);
+    console.warn(`[Guardian Route] [${requestId}] Validation failed - missing: [${missing.join(", ")}]`);
     return c.json(
       {
         success: false,
@@ -416,7 +427,6 @@ guardianRouter.post("/deploy", async (c) => {
   }
 
   try {
-    // ── Step 1: Persist session to MongoDB via MCP ──
     console.log(
       `[Guardian Route] [${requestId}] Creating session '${sessionId}' for employee '${employeeId}' ` +
         `on target '${targetSystem}' (matrix: ${matrixId})`
@@ -426,7 +436,7 @@ guardianRouter.post("/deploy", async (c) => {
       "create_session",
       {
         sessionId,
-        candidateId: employeeId,          // backward-compat field name in Mongo
+        candidateId: employeeId,
         employeeId,
         assessmentId: matrixId,
         auditId: matrixId,
@@ -445,17 +455,15 @@ guardianRouter.post("/deploy", async (c) => {
           mongoDocumentId = mcpData.mongoDocumentId;
         }
       } catch {
-        // Non-fatal — session is still tracked in-memory
         console.warn(`[Guardian Route] [${requestId}] Could not parse MCP response, using local fallback`);
       }
     } else {
       console.warn(
-        `[Guardian Route] [${requestId}] MCP create_session failed/inaccessible — ` +
+        `[Guardian Route] [${requestId}] MCP create_session failed/inaccessible - ` +
           `session tracked in-memory only`
       );
     }
 
-    // ── Step 2: Register in active session registry ──
     const deployedAt = toISOStringLocal();
     const activeSession: ActiveSession = {
       sessionId,
@@ -469,7 +477,7 @@ guardianRouter.post("/deploy", async (c) => {
     activeSessions.set(sessionId, activeSession);
 
     console.log(
-      `[Guardian Route] [${requestId}] Guardrail deployed — ` +
+      `[Guardian Route] [${requestId}] Guardrail deployed - ` +
         `sessionId=${sessionId} mongoDoc=${mongoDocumentId} registrySize=${activeSessions.size}`
     );
 
@@ -486,7 +494,7 @@ guardianRouter.post("/deploy", async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown deploy error";
     console.error(
-      `[Guardian Route] [${requestId}] DEPLOY FAILURE — ${message}`,
+      `[Guardian Route] [${requestId}] DEPLOY FAILURE - ${message}`,
       error instanceof Error ? error.stack : ""
     );
     return c.json(
@@ -500,54 +508,60 @@ guardianRouter.post("/deploy", async (c) => {
   }
 });
 
-// ─── GET /api/v1/guardian/sessions ─────────────────────────────────
-// Lists all active audited terminal sessions. Reads from the in-memory
-// registry first; when the process has restarted (empty Map), falls
-// through to the MCP list_sessions MongoDB query so the Flutter drawer
-// always shows previously deployed sessions.
+// --- GET /api/v1/guardian/sessions --------------------------------------
+// Lists all sessions. Uses sessionStore as the AUTHORITATIVE source
+// (any session that has ingested events appears here, regardless of
+// whether /deploy was called). Falls back to MongoDB via MCP when
+// sessionStore is empty (post-restart).
 
 guardianRouter.get("/sessions", async (c) => {
   const requestId = crypto.randomUUID();
 
-  // ── Path A: In-memory registry (fast path) ──
-  if (activeSessions.size > 0) {
-    const sessions = Array.from(activeSessions.values()).sort(
-      (a, b) => new Date(b.deployedAt).getTime() - new Date(a.deployedAt).getTime()
-    );
+  // Path A: In-memory sessionStore (authoritative live data)
+  // sessionStore contains every session that has ingested events,
+  // regardless of whether /deploy was called first. This ensures
+  // the left drawer always shows sessions with accurate live counts.
+  if (sessionStore.size > 0) {
+    const entries = Array.from(sessionStore.entries());
+    // Sort by the timestamp of the first event (most recent first)
+    entries.sort((a, b) => {
+      const aTime = a[1].events[0]?.timestamp ?? "";
+      const bTime = b[1].events[0]?.timestamp ?? "";
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
 
-    // Enrich with in-memory session store metrics (paste count, tab switches, etc.)
-    // Emits both FinSec & backward-compat field names so Flutter's
-    // SessionSummary.fromJson parses without throwing "Audit record data missing".
-    const enriched = sessions.map((s) => {
-      const state = sessionStore.get(s.sessionId);
+    const enriched = entries.map(([sessionId, state]) => {
+      // Merge metadata from activeSessions if /deploy was called
+      const active = activeSessions.get(sessionId);
+      const deployedAt = active?.deployedAt ?? state.events[0]?.timestamp ?? toISOStringLocal();
       return {
-        sessionId: s.sessionId,
-        employeeId: s.employeeId,
-        auditId: s.matrixId,                                  // Flutter expects auditId
-        matrixId: s.matrixId,
-        targetSystem: s.targetSystem,
-        status: s.status,
-        deployedAt: s.deployedAt,
-        startedAt: s.deployedAt,                               // Flutter SessionSummary.startedAt
-        createdAt: s.deployedAt,                               // Flutter SessionSummary.createdAt
-        riskIndex: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex,
-        peakRiskScore: state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex, // Flutter expects peakRiskScore
-        eventCount: state?.events.length ?? 0,
-        pasteCount: state?.pasteCount ?? 0,
-        tabSwitchCount: state?.tabSwitchCount ?? 0,
-        alertTriggered: (state?.lastRiskPayload?.overallRiskScore ?? s.riskIndex) >= 75,
+        sessionId,
+        employeeId: state.employeeId ?? active?.employeeId ?? "unknown",
+        auditId: state.auditId ?? active?.matrixId ?? "",
+        matrixId: state.auditId ?? active?.matrixId ?? "",
+        targetSystem: active?.targetSystem ?? "",
+        status: active?.status ?? "active",
+        deployedAt,
+        startedAt: deployedAt,
+        createdAt: deployedAt,
+        riskIndex: state.lastRiskPayload?.overallRiskScore ?? 0,
+        peakRiskScore: state.lastRiskPayload?.overallRiskScore ?? 0,
+        eventCount: state.events.length,
+        pasteCount: state.pasteCount,
+        tabSwitchCount: state.tabSwitchCount,
+        alertTriggered: (state.lastRiskPayload?.overallRiskScore ?? 0) >= 75,
       };
     });
 
     console.log(
-      `[Guardian Route] GET /sessions — ${enriched.length} active sessions (in-memory)`
+      `[Guardian Route] GET /sessions - ${enriched.length} sessions from sessionStore (in-memory)`
     );
     return c.json({ success: true, data: enriched });
   }
 
-  // ── Path B: MongoDB fallback via MCP list_sessions (post-restart) ──
+  // Path B: MongoDB fallback via MCP list_sessions (post-restart)
   console.log(
-    `[Guardian Route] [${requestId}] In-memory registry empty, querying MongoDB via MCP list_sessions...`
+    `[Guardian Route] [${requestId}] In-memory sessionStore empty, querying MongoDB via MCP list_sessions...`
   );
 
   const listRes = await mcpFetch("list_sessions", {}, requestId);
@@ -560,8 +574,6 @@ guardianRouter.get("/sessions", async (c) => {
       };
 
       if (listData.success && Array.isArray(listData.data) && listData.data.length > 0) {
-        // Map MongoDB documents into the Flutter SessionSummary shape.
-        // Re-hydrate the in-memory registry so subsequent calls hit the fast path.
         const enriched = listData.data.map((doc) => {
           const sessionId = String(doc["sessionId"] ?? doc["_id"] ?? "");
           const employeeId = String(doc["employeeId"] ?? doc["candidateId"] ?? "unknown");
@@ -576,7 +588,6 @@ guardianRouter.get("/sessions", async (c) => {
           const riskScore = Number(doc["peakRiskScore"] ?? doc["overallRiskScore"] ?? doc["riskIndex"] ?? 0);
           const eventCount = Number(doc["eventCount"] ?? 0);
 
-          // Rebuilt ActiveSession so the registry is usable for future events
           if (!activeSessions.has(sessionId)) {
             activeSessions.set(sessionId, {
               sessionId,
@@ -609,7 +620,7 @@ guardianRouter.get("/sessions", async (c) => {
         });
 
         console.log(
-          `[Guardian Route] GET /sessions — ${enriched.length} sessions restored from MongoDB`
+          `[Guardian Route] GET /sessions - ${enriched.length} sessions restored from MongoDB`
         );
         return c.json({ success: true, data: enriched });
       }
@@ -621,21 +632,17 @@ guardianRouter.get("/sessions", async (c) => {
     }
   }
 
-  // ── Path C: Nothing in memory AND nothing in MongoDB ──
+  // Path C: Nothing in memory AND nothing in MongoDB
   console.log(
-    `[Guardian Route] [${requestId}] GET /sessions — 0 sessions (memory + MongoDB both empty)`
+    `[Guardian Route] [${requestId}] GET /sessions - 0 sessions (memory + MongoDB both empty)`
   );
   return c.json({ success: true, data: [] });
 });
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 // MCP Timeout-Isolated Helpers
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
-/**
- * Executes an MCP HTTP fetch with a hard timeout. Returns the Response
- * on success, or null if the call timed out / errored.
- */
 async function mcpFetch(
   tool: string,
   body: unknown,
@@ -658,7 +665,7 @@ async function mcpFetch(
       signal: controller.signal,
     });
     console.log(
-      `[Guardian MCP] [${requestId}] ${tool} completed — HTTP ${res.status} in ${Date.now() - startMs}ms`
+      `[Guardian MCP] [${requestId}] ${tool} completed - HTTP ${res.status} in ${Date.now() - startMs}ms`
     );
     return res;
   } catch (error) {
@@ -683,7 +690,6 @@ async function ensureMongoSession(
   primaryEvent: MicroEvent,
   requestId: string
 ): Promise<void> {
-  // Check if session exists
   const checkRes = await mcpFetch("get_session_review", { sessionId }, requestId);
 
   let exists = false;
@@ -738,9 +744,31 @@ async function persistRiskReport(
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+async function updateMongoSessionCounts(
+  sessionId: string,
+  eventCount: number,
+  pasteCount: number,
+  tabSwitchCount: number,
+  copyAttemptCount: number,
+  peakRiskScore: number,
+  requestId: string
+): Promise<void> {
+  const res = await mcpFetch(
+    "update_session_counts",
+    {
+      sessionId,
+      counts: { eventCount, pasteCount, tabSwitchCount, copyAttemptCount, peakRiskScore },
+    },
+    requestId
+  );
+  if (!res?.ok) {
+    console.warn(`[Guardian MCP] [${requestId}] Failed to update session counts (non-fatal)`);
+  }
+}
+
+// ===================================================================
 // Internal Helpers
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
 function processEvent(event: MicroEvent): void {
   let session = sessionStore.get(event.sessionId);
@@ -761,7 +789,6 @@ function processEvent(event: MicroEvent): void {
     };
   }
 
-  // Guarantee non-nullability after construction
   const sess = session;
 
   sess.events.push(event);
@@ -794,19 +821,16 @@ function processEvent(event: MicroEvent): void {
       sess.copyAttemptCount++;
       break;
     case "SUBMIT":
-      // Final code snapshot
       if (event.payload.pasteContent) {
         sess.currentCode = event.payload.pasteContent;
       }
       break;
     case "EDIT":
-      // Live terminal workspace edit — update the full code snapshot
       if (event.payload.newText !== undefined) {
         sess.currentCode = event.payload.newText;
       }
       break;
     case "PASTE":
-      // Live terminal paste — track as paste + update code snapshot
       sess.pasteCount++;
       if (event.payload.newText !== undefined) {
         sess.currentCode = event.payload.newText;
@@ -840,8 +864,6 @@ function computeKeystrokeMetrics(deltas: number[]): {
 }
 
 function applyDiffPatch(current: string, _diffPatch: string): string {
-  // Simplified: append the diff as a code block update.
-  // In production, this applies a proper unified diff algorithm.
   if (_diffPatch.startsWith("@@") || _diffPatch.startsWith("---")) {
     const lines = _diffPatch.split("\n");
     const newLines = lines
@@ -856,7 +878,6 @@ async function getReferenceCompletions(
   _auditId: string,
   _vectorId: string
 ): Promise<string[]> {
-  // In production, queries the MCP MongoDB store for cached Gemini completions
   return [];
 }
 

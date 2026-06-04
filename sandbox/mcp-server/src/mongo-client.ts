@@ -136,8 +136,19 @@ export class MongoStore {
           projection: {
             sessionId: 1,
             candidateId: 1,
+            employeeId: 1,
             assessmentId: 1,
+            auditId: 1,
+            matrixId: 1,
             status: 1,
+            eventCount: 1,
+            pasteCount: 1,
+            tabSwitchCount: 1,
+            copyAttemptCount: 1,
+            peakRiskScore: 1,
+            overallRiskScore: 1,
+            riskIndex: 1,
+            deployedAt: 1,
             createdAt: 1,
             updatedAt: 1,
             _id: 0,
@@ -146,6 +157,27 @@ export class MongoStore {
       )
       .sort({ createdAt: -1 })
       .toArray();
+  }
+
+  /**
+   * Updates live aggregate counts on the session document after micro-event
+   * ingestion. Called by the Hono API after every batch so the left-drawer
+   * session list always shows accurate eventCount even post-restart.
+   */
+  async updateSessionCounts(
+    sessionId: string,
+    counts: {
+      eventCount: number;
+      pasteCount?: number;
+      tabSwitchCount?: number;
+      copyAttemptCount?: number;
+      peakRiskScore?: number;
+    }
+  ): Promise<void> {
+    await this.collection("sessions").updateOne(
+      { sessionId },
+      { $set: { ...counts, updatedAt: new Date() } }
+    );
   }
 
   // ─── Micro-Event Operations ────────────────────────────────────

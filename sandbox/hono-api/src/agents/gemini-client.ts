@@ -1,5 +1,4 @@
-/**
- * Cerberus FinSec — Ultra-Resilient Gemini 3 Flash Preview Client
+/** * Cerberus FinSec — Ultra-Resilient Gemini 3 Flash Preview Client
  * Google Cloud Financial Services Track — Hackathon 2026
  *
  * Primary backend: Vertex AI via @google/genai SDK + ADC.
@@ -51,6 +50,20 @@ async function loadGenAISDK() {
     HarmCategory: _HarmCategory,
     HarmBlockThreshold: _HarmBlockThreshold,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Helper: safely extract an array from parsed JSON
+// ═══════════════════════════════════════════════════════════════════
+
+function safeArray(raw: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+}
+
+function safeStringArray(raw: unknown): string[] {
+  return Array.isArray(raw)
+    ? (raw.filter((e) => typeof e === "string") as string[])
+    : [];
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -464,27 +477,22 @@ export class GeminiClient {
     }
 
     const metadata = parsed["metadata"] as Record<string, unknown> | undefined;
-    const threatVectorsRaw =
-      (parsed["threatVectors"] as Array<Record<string, unknown>>) ??
-      (parsed["threat_vectors"] as Array<Record<string, unknown>>) ??
-      (parsed["problems"] as Array<Record<string, unknown>>) ??
-      [];
-    const targetSystemsRaw =
-      (parsed["targetSystems"] as Array<Record<string, unknown>>) ??
-      (parsed["target_systems"] as Array<Record<string, unknown>>) ??
-      (parsed["roles"] as Array<Record<string, unknown>>) ??
-      [];
-    const regulatoryMandatesRaw =
-      (parsed["regulatoryMandates"] as Array<Record<string, unknown>>) ??
-      (parsed["regulatory_mandates"] as Array<Record<string, unknown>>) ??
-      (parsed["competencies"] as Array<Record<string, unknown>>) ??
-      [];
-    const penetrationScenariosRaw =
-      (parsed["penetrationScenarios"] as Array<Record<string, unknown>>) ??
-      (parsed["penetration_scenarios"] as Array<Record<string, unknown>>) ??
-      (parsed["testingMatrices"] as Array<Record<string, unknown>>) ??
-      (parsed["testing_matrices"] as Array<Record<string, unknown>>) ??
-      [];
+
+    // Safely extract top-level arrays — Gemini sometimes returns strings
+    // instead of arrays, which would crash Flutter's Map<String,dynamic> cast.
+    const threatVectorsRaw = safeArray(parsed["threatVectors"]) 
+      ?? safeArray(parsed["threat_vectors"])
+      ?? safeArray(parsed["problems"]);
+    const targetSystemsRaw = safeArray(parsed["targetSystems"])
+      ?? safeArray(parsed["target_systems"])
+      ?? safeArray(parsed["roles"]);
+    const regulatoryMandatesRaw = safeArray(parsed["regulatoryMandates"])
+      ?? safeArray(parsed["regulatory_mandates"])
+      ?? safeArray(parsed["competencies"]);
+    const penetrationScenariosRaw = safeArray(parsed["penetrationScenarios"])
+      ?? safeArray(parsed["penetration_scenarios"])
+      ?? safeArray(parsed["testingMatrices"])
+      ?? safeArray(parsed["testing_matrices"]);
 
     const tokenUsage: TokenUsageStats = {
       promptTokens: (metadata?.["promptTokens"] as number) ?? 0,
@@ -515,10 +523,9 @@ export class GeminiClient {
         (ts["criticalityLevel"] as TargetSystem["criticalityLevel"]) ??
         (ts["seniorityLevel"] as TargetSystem["criticalityLevel"]) ??
         "medium",
-      requiredMandateIds:
-        (ts["requiredMandateIds"] as string[]) ?? (ts["requiredCompetencyIds"] as string[]) ?? [],
+      requiredMandateIds: safeStringArray(ts["requiredMandateIds"] ?? ts["requiredCompetencyIds"]),
       description: (ts["description"] as string) ?? "",
-      examples: (ts["examples"] as string[]) ?? [],
+      examples: safeStringArray(ts["examples"]),
     }));
 
     const mappedRegulatoryMandates: RegulatoryMandate[] = regulatoryMandatesRaw.map((rm) => ({
@@ -527,11 +534,9 @@ export class GeminiClient {
       name: (rm["name"] as string) ?? "Unnamed Mandate",
       description: (rm["description"] as string) ?? "",
       weight: (rm["weight"] as number) ?? 0,
-      subMandates:
-        (rm["subMandates"] as RegulatoryMandate[]) ??
-        (rm["sub_mandates"] as RegulatoryMandate[]) ??
-        (rm["subCompetencies"] as RegulatoryMandate[]) ??
-        [],
+      // SAFETY: subMandates must be an array — if Gemini returns a string like
+      // "Req 3.4 (Encryption)" we default to [] to prevent Flutter crash.
+      subMandates: safeArray(rm["subMandates"] ?? rm["sub_mandates"] ?? rm["subCompetencies"]) as unknown as RegulatoryMandate[],
       regulationCode:
         (rm["regulationCode"] as string) ?? (rm["regulation_code"] as string) ?? "",
     }));
@@ -547,7 +552,7 @@ export class GeminiClient {
       targetSystemId: (tv["targetSystemId"] as string) ?? "",
       exploitScenario: tv["exploitScenario"] as string | undefined,
       starterCode: tv["starterCode"] as string | undefined,
-      detectionRules: tv["detectionRules"] as ThreatVector["detectionRules"] | undefined,
+      detectionRules: Array.isArray(tv["detectionRules"]) ? tv["detectionRules"] as ThreatVector["detectionRules"] : undefined,
       expectedRemediation: tv["expectedRemediation"] as string | undefined,
       severity:
         (tv["severity"] as ThreatVector["severity"]) ??
@@ -563,8 +568,7 @@ export class GeminiClient {
       scenarioId:
         (ps["scenarioId"] as string) ?? (ps["matrixId"] as string) ?? crypto.randomUUID(),
       vectorId: (ps["vectorId"] as string) ?? (ps["problemId"] as string) ?? "",
-      mandateIds:
-        (ps["mandateIds"] as string[]) ?? (ps["competencyIds"] as string[]) ?? [],
+      mandateIds: safeStringArray(ps["mandateIds"] ?? ps["competencyIds"]),
       scoringFormula:
         (ps["scoringFormula"] as PenetrationScenario["scoringFormula"]) ?? {
           type: "weighted_sum",
@@ -608,6 +612,8 @@ export class GeminiClient {
       }
     }
     const dims = parsed["dimensionScores"] as Record<string, unknown> | undefined;
+    const rawFlags = parsed["flags"];
+    const rawAnomalies = parsed["behavioralAnomalies"];
     return {
       riskAssessmentId:
         (parsed["riskAssessmentId"] as string) ??
@@ -625,12 +631,12 @@ export class GeminiClient {
         insiderTrading: (dims?.["insiderTrading"] as number) ?? 0,
         soxNonCompliance: (dims?.["soxNonCompliance"] as number) ?? 0,
       },
-      flags: (parsed["flags"] as RiskAssessmentPayload["flags"]) ?? [],
+      flags: Array.isArray(rawFlags) ? rawFlags as RiskAssessmentPayload["flags"] : [],
       exfiltrationReport:
         (parsed["exfiltrationReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
         (parsed["plagiarismReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
         null,
-      behavioralAnomalies: (parsed["behavioralAnomalies"] as RiskAssessmentPayload["behavioralAnomalies"]) ?? [],
+      behavioralAnomalies: Array.isArray(rawAnomalies) ? rawAnomalies as RiskAssessmentPayload["behavioralAnomalies"] : [],
       generatedAt: (parsed["generatedAt"] as string) ?? toISOStringLocal(),
     };
   }

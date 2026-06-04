@@ -12,12 +12,28 @@
  *     timeout (MCP_TIMEOUT_MS) so that a slow MongoDB Atlas connection
  *     never starves the review endpoint.
  *   - Deep observability telemetry logs at every pipeline milestone.
+ *
+ * ENTERPRISE HARDENING (2026-06-04):
+ *   - MCP enrichment timeouts silently zero out event/paste/tab counts
+ *     in the session list left-drawer. The review route now imports the
+ *     guardian's in-memory sessionStore and uses it as an authoritative
+ *     fallback so the Flutter drawer always shows accurate live counts
+ *     regardless of MCP MongoDB reachability.
+ *
+ * ENTERPRISE HARDENING (2026-06-04 v2):
+ *   - When MCP list_sessions is unreachable (timed out / down), the
+ *     review route previously returned `data: []` — showing 0 events
+ *     in the Flutter left drawer even though sessionStore had live
+ *     sessions. Now builds the session list from a UNION of MCP
+ *     (durable) + sessionStore (live) so the drawer always reflects
+ *     active sessions regardless of MongoDB Atlas connectivity.
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import { Hono } from "hono";
 import type { SessionReviewResponse, RiskAssessmentPayload } from "../types.js";
 import { toISOStringLocal } from "../utils/time.js";
+import { sessionStore } from "./guardian.js";
 
 const reviewRouter = new Hono();
 
@@ -82,59 +98,120 @@ async function mcpFetch(
 }
 
 // ─── GET /api/v1/sessions ───────────────────────────────────────
-// Lists all sessions from MongoDB via the MCP HTTP adapter.
+// Lists all sessions from a UNION of MCP (durable MongoDB) + in-memory
+// sessionStore (live). The Flutter left drawer always shows active
+// sessions regardless of MCP MongoDB Atlas reachability.
 
 reviewRouter.get("/", async (c) => {
   const requestId = crypto.randomUUID();
   console.log(`[Review Route] [${requestId}] Incoming GET /api/v1/sessions`);
 
   try {
-    const res = await mcpFetch("list_sessions", {}, requestId);
+    // ═════════════════════════════════════════════════════════════
+    // Build the session list from a UNION of:
+    //   A) MCP list_sessions  (durable, MongoDB-backed)
+    //   B) sessionStore       (live, in-memory, authoritative for
+    //                          sessions that have ingested events)
+    //
+    // sessionStore is authoritative — a session created by ingestion
+    // without /deploy is still a valid live session with real events.
+    // ═════════════════════════════════════════════════════════════
 
-    if (!res || !res.ok) {
-      if (res) {
-        const errBody = await res.text().catch(() => "<unreadable>");
-        console.error(
-          `[Review Route] [${requestId}] list_sessions failed: HTTP ${res.status} ${errBody.substring(0, 300)}`
-        );
-      } else {
-        console.warn(
-          `[Review Route] [${requestId}] list_sessions timed out / unreachable — returning empty list`
-        );
-      }
-      return c.json({ success: true, data: [] });
-    }
-
-    const mcpResult = (await res.json()) as {
-      success: boolean;
-      data?: Array<{
-        sessionId: string;
-        candidateId: string;
-        assessmentId: string;
-        status: string;
-        createdAt: string;
-        updatedAt: string;
-      }>;
+    type McpSessionEntry = {
+      sessionId: string;
+      candidateId: string;
+      assessmentId: string;
+      status: string;
+      createdAt: string;
+      updatedAt: string;
+      eventCount?: number;
+      pasteCount?: number;
+      tabSwitchCount?: number;
+      copyAttemptCount?: number;
+      peakRiskScore?: number;
     };
 
-    if (!mcpResult.success || !mcpResult.data) {
-      console.log(`[Review Route] [${requestId}] list_sessions returned empty data`);
+    const seenIds = new Set<string>();
+    const allSessions: McpSessionEntry[] = [];
+
+    // --- Path A: Try MCP list_sessions (durable MongoDB) ---
+    const res = await mcpFetch("list_sessions", {}, requestId);
+    if (res?.ok) {
+      try {
+        const mcpResult = (await res.json()) as {
+          success: boolean;
+          data?: McpSessionEntry[];
+        };
+        if (mcpResult.success && Array.isArray(mcpResult.data)) {
+          for (const s of mcpResult.data) {
+            if (!seenIds.has(s.sessionId)) {
+              allSessions.push(s);
+              seenIds.add(s.sessionId);
+            }
+          }
+          console.log(
+            `[Review Route] [${requestId}] MCP list_sessions returned ${mcpResult.data.length} sessions`
+          );
+        }
+      } catch {
+        console.warn(
+          `[Review Route] [${requestId}] Failed to parse MCP list_sessions response — continuing with sessionStore`
+        );
+      }
+    } else {
+      console.warn(
+        `[Review Route] [${requestId}] MCP list_sessions unavailable — using sessionStore alone`
+      );
+    }
+
+    // --- Path B: Add sessions from sessionStore that MCP didn't return ---
+    if (sessionStore.size > 0) {
+      for (const [sid, state] of sessionStore.entries()) {
+        if (!seenIds.has(sid)) {
+          allSessions.push({
+            sessionId: sid,
+            candidateId: state.employeeId ?? "unknown",
+            assessmentId: state.auditId ?? "",
+            status: "active",
+            createdAt: state.events[0]?.timestamp ?? toISOStringLocal(),
+            updatedAt:
+              state.events[state.events.length - 1]?.timestamp ??
+              toISOStringLocal(),
+          });
+          seenIds.add(sid);
+        }
+      }
+      console.log(
+        `[Review Route] [${requestId}] sessionStore contributed ${sessionStore.size} entries (${allSessions.length - (res?.ok ? (await res?.json?.() as any)?.data?.length ?? 0 : 0)} new)`
+      );
+    }
+
+    if (allSessions.length === 0) {
+      console.log(
+        `[Review Route] [${requestId}] No sessions found (MCP + sessionStore both empty)`
+      );
       return c.json({ success: true, data: [] });
     }
 
     console.log(
-      `[Review Route] [${requestId}] list_sessions returned ${mcpResult.data.length} sessions — enriching...`
+      `[Review Route] [${requestId}] ${allSessions.length} total sessions (MCP + sessionStore union) — enriching...`
     );
 
-    // Enrich each session with counts from micro_events and suspicion_reports
+    // Enrich each session with counts from micro_events and suspicion_reports.
+    // sessionStore is the primary (authoritative) source for live counts;
+    // MCP get_session_review is supplementary for MongoDB-persisted data.
     const enrichedSessions = await Promise.all(
-      mcpResult.data.map(async (s) => {
-        let eventCount = 0;
-        let pasteCount = 0;
-        let tabSwitchCount = 0;
-        let suspicionScore = 0;
+      allSessions.map(async (s) => {
+        // ── Seed from the in-memory session store FIRST (authoritative live data) ──
+        const memSession = sessionStore.get(s.sessionId);
+        let eventCount = memSession?.events.length ?? (s.eventCount ?? 0);
+        let pasteCount = memSession?.pasteCount ?? (s.pasteCount ?? 0);
+        let tabSwitchCount = memSession?.tabSwitchCount ?? (s.tabSwitchCount ?? 0);
+        let copyAttemptCount = memSession?.copyAttemptCount ?? (s.copyAttemptCount ?? 0);
+        let suspicionScore = memSession?.lastRiskPayload?.overallRiskScore ?? (s.peakRiskScore ?? 0);
         let lastEventTimestamp: string | null = s.updatedAt ?? null;
 
+        // ── Try MCP enrichment for persisted data (durable, but may timeout) ──
         const reviewRes = await mcpFetch(
           "get_session_review",
           { sessionId: s.sessionId },
@@ -154,15 +231,29 @@ reviewRouter.get("/", async (c) => {
               }>;
             };
             if (reviewData.success && reviewData.events) {
-              eventCount = reviewData.events.length;
-              pasteCount = reviewData.events.filter(
-                (e) => e.eventType === "PASTE_TRIGGER"
+              // Merge: MCP may have events persisted to MongoDB that the
+              // in-memory store doesn't (e.g. if the server restarted between
+              // ingestion and now). Take the max of both sources.
+              const mcpEventCount = reviewData.events.length;
+              if (mcpEventCount > eventCount) eventCount = mcpEventCount;
+
+              const mcpPasteCount = reviewData.events.filter(
+                (e) => e.eventType === "PASTE_TRIGGER" || e.eventType === "PASTE"
               ).length;
-              tabSwitchCount = reviewData.events.filter(
+              if (mcpPasteCount > pasteCount) pasteCount = mcpPasteCount;
+
+              const mcpTabCount = reviewData.events.filter(
                 (e) =>
                   e.eventType === "TAB_SWITCH" ||
                   e.eventType === "WINDOW_BLUR"
               ).length;
+              if (mcpTabCount > tabSwitchCount) tabSwitchCount = mcpTabCount;
+
+              const mcpCopyCount = reviewData.events.filter(
+                (e) => e.eventType === "COPY_ATTEMPT"
+              ).length;
+              if (mcpCopyCount > copyAttemptCount) copyAttemptCount = mcpCopyCount;
+
               if (reviewData.events.length > 0) {
                 const sorted = [...reviewData.events].sort(
                   (a, b) =>
@@ -177,14 +268,20 @@ reviewRouter.get("/", async (c) => {
               reviewData.suspicionReports &&
               reviewData.suspicionReports.length > 0
             ) {
-              suspicionScore =
+              const mcpScore =
                 reviewData.suspicionReports[
                   reviewData.suspicionReports.length - 1
                 ].overallRiskScore;
+              if (mcpScore > suspicionScore) suspicionScore = mcpScore;
             }
           } catch {
-            // Silently fall back — counts will be zero
+            // Silently fall back — in-memory counts already populated
           }
+        } else {
+          console.log(
+            `[Review Route] [${requestId}] MCP enrichment for session '${s.sessionId}' ` +
+              `unavailable — using in-memory counts (events=${eventCount}, pastes=${pasteCount}, tabs=${tabSwitchCount})`
+          );
         }
 
         // ── FinSec rebranded enriched return payload ──────────────────
@@ -227,11 +324,15 @@ reviewRouter.get("/", async (c) => {
 
 // ─── GET /api/v1/sessions/:sessionId ────────────────────────────
 // Fetches a single session from MongoDB via the MCP HTTP adapter.
+// Falls back to in-memory sessionStore when MCP is unreachable.
 
 reviewRouter.get("/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
   const requestId = crypto.randomUUID();
   console.log(`[Review Route] [${requestId}] Incoming GET /api/v1/sessions/${sessionId}`);
+
+  // ── In-memory session for live counts fallback ──
+  const memSession = sessionStore.get(sessionId);
 
   try {
     const mcpRes = await mcpFetch(
@@ -450,17 +551,20 @@ reviewRouter.get("/:sessionId", async (c) => {
       };
     });
 
+    // ── Merge in-memory live counts (authoritative) with MCP durable data ──
+    const finalRiskScore = lastReport
+      ? (lastReport["overallRiskScore"] as number) ?? 0
+      : (memSession?.lastRiskPayload?.overallRiskScore ?? 0);
+
     const response: SessionReviewResponse = {
       sessionId: session.sessionId,
       employeeId: session.candidateId,
       auditId: session.assessmentId,
       status,
-      terminalContent: session.submittedCode ?? "",
+      terminalContent: session.submittedCode ?? memSession?.currentCode ?? "",
       timeline,
       riskSummary,
-      finalRiskScore: lastReport
-        ? (lastReport["overallRiskScore"] as number) ?? 0
-        : 0,
+      finalRiskScore,
     };
 
     console.log(
