@@ -35,6 +35,7 @@ import { Hono } from "hono";
 import type { GenerateComplianceMatrixRequest } from "../types.js";
 import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
+import { toISOStringLocal } from "../utils/time.js";
 
 const generateRouter = new Hono();
 const config = loadConfig();
@@ -103,7 +104,7 @@ function buildPipelineDiag(
 // ─── POST / ───────────────────────────────────────────────────────
 
 generateRouter.post("/", async (c) => {
-  const startedAt = new Date().toISOString();
+  const startedAt = toISOStringLocal();
   const requestId =
     c.res.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
   console.log(
@@ -591,7 +592,7 @@ async function persistMatrixViaMCP(
       body: JSON.stringify({
         suite,
         correlationId,
-        persistedAt: new Date().toISOString(),
+        persistedAt: toISOStringLocal(),
       }),
       signal: controller.signal,
     });

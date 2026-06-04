@@ -17,6 +17,7 @@
 
 import { Hono } from "hono";
 import type { SessionReviewResponse, RiskAssessmentPayload } from "../types.js";
+import { toISOStringLocal } from "../utils/time.js";
 
 const reviewRouter = new Hono();
 
@@ -207,8 +208,8 @@ reviewRouter.get("/", async (c) => {
           targetSystem: "Core Trading Ledger",
           alertTriggered: suspicionScore >= 75,
           peakRiskScore: suspicionScore,
-          createdAt: s.createdAt ?? new Date().toISOString(),
-          startedAt: s.createdAt ?? new Date().toISOString(),
+          createdAt: s.createdAt ?? toISOStringLocal(),
+          startedAt: s.createdAt ?? toISOStringLocal(),
         };
       })
     );
@@ -406,7 +407,7 @@ reviewRouter.get("/:sessionId", async (c) => {
       const rawFlags: Record<string, unknown>[] =
         Array.isArray(r["flags"]) ? (r["flags"] as Record<string, unknown>[]) : [];
       const generatedAt =
-        (r["generatedAt"] as string) ?? new Date().toISOString();
+        (r["generatedAt"] as string) ?? toISOStringLocal();
       const rawDims = r["dimensionScores"] as Record<string, unknown> | undefined;
       return {
         riskAssessmentId:

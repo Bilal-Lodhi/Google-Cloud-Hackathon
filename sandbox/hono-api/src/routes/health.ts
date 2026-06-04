@@ -4,6 +4,7 @@
  */
 
 import { Hono } from "hono";
+import { toISOStringLocal } from "../utils/time.js";
 
 const healthRouter = new Hono();
 
@@ -21,7 +22,7 @@ healthRouter.get("/", (c) => {
       analyticalReview: "/api/v1/sessions/:sessionId/review",
     },
     uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
+    timestamp: toISOStringLocal(),
   });
 });
 

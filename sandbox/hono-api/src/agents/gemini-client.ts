@@ -12,6 +12,7 @@
  */
 
 import type { AppConfig } from "../config.js";
+import { toISOStringLocal } from "../utils/time.js";
 import type {
   OrchestratorPrompt,
   GeneratedComplianceMatrix,
@@ -501,7 +502,7 @@ export class GeminiClient {
     const matrixMetadata: MatrixMetadata = {
       matrixId,
       suiteId: matrixId,
-      generatedAt: (metadata?.["generatedAt"] as string) ?? new Date().toISOString(),
+      generatedAt: (metadata?.["generatedAt"] as string) ?? toISOStringLocal(),
       modelVersion: this.model,
       promptFingerprint: (metadata?.["promptFingerprint"] as string) ?? "",
       tokenUsage,
@@ -630,7 +631,7 @@ export class GeminiClient {
         (parsed["plagiarismReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
         null,
       behavioralAnomalies: (parsed["behavioralAnomalies"] as RiskAssessmentPayload["behavioralAnomalies"]) ?? [],
-      generatedAt: (parsed["generatedAt"] as string) ?? new Date().toISOString(),
+      generatedAt: (parsed["generatedAt"] as string) ?? toISOStringLocal(),
     };
   }
 

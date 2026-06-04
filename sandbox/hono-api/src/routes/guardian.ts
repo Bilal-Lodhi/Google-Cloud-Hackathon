@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import type { IngestMicroEventRequest, IngestMicroEventResponse, MicroEvent, RiskAssessmentPayload, DeploySessionRequest, DeploySessionResponse, ActiveSession } from "../types.js";
 import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
+import { toISOStringLocal, formatLocalTime } from "../utils/time.js";
 
 const guardianRouter = new Hono();
 const config = loadConfig();
@@ -195,7 +196,7 @@ guardianRouter.post("/ingest", async (c) => {
         riskPayload.sessionId = sessionId;
         riskPayload.employeeId = session.employeeId;
         riskPayload.auditId = session.auditId;
-        riskPayload.generatedAt = new Date().toISOString();
+        riskPayload.generatedAt = toISOStringLocal();
 
         // Capture full paste content blobs (including multi-line pastes)
         riskPayload.pasteSnippets = session.events
@@ -455,7 +456,7 @@ guardianRouter.post("/deploy", async (c) => {
     }
 
     // ── Step 2: Register in active session registry ──
-    const deployedAt = new Date().toISOString();
+    const deployedAt = toISOStringLocal();
     const activeSession: ActiveSession = {
       sessionId,
       employeeId,
@@ -565,7 +566,7 @@ guardianRouter.get("/sessions", async (c) => {
           const sessionId = String(doc["sessionId"] ?? doc["_id"] ?? "");
           const employeeId = String(doc["employeeId"] ?? doc["candidateId"] ?? "unknown");
           const matrixId = String(doc["auditId"] ?? doc["assessmentId"] ?? doc["matrixId"] ?? "");
-          const deployedAt = String(doc["deployedAt"] ?? doc["createdAt"] ?? new Date().toISOString());
+          const deployedAt = String(doc["deployedAt"] ?? doc["createdAt"] ?? toISOStringLocal());
           const rawStatus = String(doc["status"] ?? "active");
           const status = (
             ["active", "flagged", "investigating", "cleared"].includes(rawStatus)
@@ -823,33 +824,6 @@ function hasAnomalousKeystrokes(deltas: number[]): boolean {
   if (deltas.length < 10) return false;
   const fastCount = deltas.filter((d) => d < config.security.minHumanKeystrokeMs).length;
   return fastCount / deltas.length > 0.3;
-}
-
-/**
- * Formats a Date into a human-readable local time label like "Today 10:32 AM"
- * or "Jun 3, 10:32 AM" for the risk notification popup UI.
- */
-function formatLocalTime(date: Date): string {
-  const now = new Date();
-  const isToday =
-    now.getFullYear() === date.getFullYear() &&
-    now.getMonth() === date.getMonth() &&
-    now.getDate() === date.getDate();
-
-  const hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const hour12 = hours % 12 || 12;
-
-  const timeStr = `${hour12}:${minutes} ${ampm}`;
-
-  if (isToday) return `Today ${timeStr}`;
-
-  const monthNames = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
-  return `${monthNames[date.getMonth()]} ${date.getDate()}, ${timeStr}`;
 }
 
 function computeKeystrokeMetrics(deltas: number[]): {
