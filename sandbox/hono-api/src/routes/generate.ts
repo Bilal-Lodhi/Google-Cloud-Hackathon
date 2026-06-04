@@ -41,7 +41,13 @@ const config = loadConfig();
 const gemini = new GeminiClient(config);
 
 // ─── In-flight request tracking (for user-initiated cancellation) ──
-const ACTIVE_REQUESTS = new Map<string, AbortController>();
+// ACTIVE_CONTROLLERS is keyed by the server-generated requestId (always unique)
+// to prevent race conditions when concurrent requests share the same
+// client-provided generationRequestId.
+// GEN_REQUEST_TO_INTERNAL maps client-visible generationRequestId → internal requestId
+// so cancel requests can find the right controller.
+const ACTIVE_CONTROLLERS = new Map<string, AbortController>();
+const GEN_REQUEST_TO_INTERNAL = new Map<string, string>();
 
 // ─── MCP Grounding Constants ──────────────────────────────────────
 
@@ -225,10 +231,13 @@ generateRouter.post("/", async (c) => {
   const generationRequestId =
     c.req.header("X-Generation-Request-Id")?.trim() || crypto.randomUUID();
   const abortController = new AbortController();
-  ACTIVE_REQUESTS.set(generationRequestId, abortController);
+  // Map BOTH the client-visible generationRequestId AND the server-internal
+  // requestId so parallel requests don't collide on the same key.
+  ACTIVE_CONTROLLERS.set(requestId, abortController);
+  GEN_REQUEST_TO_INTERNAL.set(generationRequestId, requestId);
   console.log(
     `[Generate Route] [${requestId}] Registered abort controller — ` +
-      `generationRequestId=${generationRequestId}`,
+      `generationRequestId=${generationRequestId} internalId=${requestId}`,
   );
 
   try {
@@ -462,7 +471,8 @@ generateRouter.post("/", async (c) => {
       statusCode,
     );
   } finally {
-    ACTIVE_REQUESTS.delete(generationRequestId);
+    ACTIVE_CONTROLLERS.delete(requestId);
+    GEN_REQUEST_TO_INTERNAL.delete(generationRequestId);
     console.log(
       `[Generate Route] [${requestId}] Removed abort controller — generationRequestId=${generationRequestId}`,
     );
@@ -517,7 +527,11 @@ generateRouter.post("/cancel", async (c) => {
   }
 
   const genRequestId = body.generationRequestId;
-  const controller = ACTIVE_REQUESTS.get(genRequestId);
+  // Resolve client-visible generationRequestId → internal requestId
+  const internalId = GEN_REQUEST_TO_INTERNAL.get(genRequestId);
+  // Also try direct lookup in case generationRequestId === requestId
+  const controller = (internalId && ACTIVE_CONTROLLERS.get(internalId)) 
+    ?? ACTIVE_CONTROLLERS.get(genRequestId);
 
   if (!controller) {
     console.warn(
@@ -538,7 +552,9 @@ generateRouter.post("/cancel", async (c) => {
     `[Generate Route] [${requestId}] ABORTING generation ${genRequestId} per user request.`,
   );
   controller.abort();
-  ACTIVE_REQUESTS.delete(genRequestId);
+  // Clean up both maps
+  ACTIVE_CONTROLLERS.delete(internalId ?? genRequestId);
+  GEN_REQUEST_TO_INTERNAL.delete(genRequestId);
 
   return c.json({
     success: true,

@@ -35,7 +35,7 @@ Write-Host $r.Content
 Write-Host ''
 
 Write-Host '=== 6/10: POST /api/v1/guardian/deploy (valid matrixId) ===' -ForegroundColor Cyan
-$body = "{`"employeeId`":`"op-trader-001`",`"sessionId`":`"active-ledger-audit-v2`",`"matrixId`":`"$matrixId`",`"targetSystem`":`"Core Trading Ledger`"}"
+$body = "{`"employeeUid`":`"op-trader-001`",`"sessionId`":`"active-ledger-audit-v2`",`"matrixId`":`"$matrixId`",`"targetSystem`":`"Core Trading Ledger`"}"
 $r = curl -Method POST -ContentType 'application/json' -UseBasicParsing -Body $body -Uri 'http://localhost:8080/api/v1/guardian/deploy' 2>&1
 Write-Host $r.Content
 Write-Host ''

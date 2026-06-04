@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/review_provider.dart';
 import '../providers/guardian_provider.dart';
 import '../models/guardian_model.dart';
+import 'risk_notification.dart';
 
 /// ─── Cerberus FinSec — Middle Panel: Real-Time Threat Metrics & SIEM Feed ────
 /// Displays a live Anomaly Risk Index circular gauge (0–100), a scrolling
@@ -69,6 +70,7 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
               : payload.overallRiskScore >= 45
               ? 'warning'
               : 'info',
+          riskPayload: payload,
         ),
       );
     }
@@ -184,88 +186,200 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
   ) {
     final color = _severityColor(severity, theme);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.06)),
-      child: Row(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.03)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border(
+          bottom: BorderSide(color: color.withValues(alpha: 0.3), width: 1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Circular progress indicator
-          SizedBox(
-            width: 72,
-            height: 72,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: score / 100.0),
-              duration: const Duration(milliseconds: 900),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) {
-                return Stack(
-                  alignment: Alignment.center,
+          // Row 1: Gauge + Labels + DETAILS button
+          Row(
+            children: [
+              // Circular progress indicator
+              SizedBox(
+                width: 72,
+                height: 72,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: score / 100.0),
+                  duration: const Duration(milliseconds: 900),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, _) {
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          value: value,
+                          strokeWidth: 6,
+                          backgroundColor:
+                              theme.colorScheme.surfaceContainerHighest,
+                          valueColor: AlwaysStoppedAnimation(color),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              score.toStringAsFixed(0),
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                color: color,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Labels + metrics
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(
-                      value: value,
-                      strokeWidth: 6,
-                      backgroundColor:
-                          theme.colorScheme.surfaceContainerHighest,
-                      valueColor: AlwaysStoppedAnimation(color),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          score.toStringAsFixed(0),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            color: color,
-                            fontWeight: FontWeight.w800,
+                          'ANOMALY RISK INDEX',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                            letterSpacing: 0.8,
                           ),
+                        ),
+                        _severityBadge(theme, severity),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        _metricChip(
+                          theme,
+                          Icons.event,
+                          '${lastPayload?.flags.length ?? 0} flags',
+                          onTap: _scrollToFirstRiskAssessment,
+                        ),
+                        const SizedBox(width: 12),
+                        _metricChip(
+                          theme,
+                          Icons.timer_outlined,
+                          lastPayload != null
+                              ? _formatTimestamp(lastPayload.generatedAt)
+                              : '—',
                         ),
                       ],
                     ),
                   ],
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 16),
-          // Labels + metrics
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'ANOMALY RISK INDEX',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.outline,
-                        letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(width: 6),
+              // REFRESH button
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                tooltip: 'Refresh threat data',
+                color: theme.colorScheme.outline,
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  final review = context.read<ReviewProvider>().selected;
+                  if (review != null) {
+                    context.read<ReviewProvider>().loadAuditRecord(
+                      review.sessionId,
+                    );
+                    // Also restart the guardian stream if active
+                    final guardian = context.read<GuardianProvider>();
+                    if (guardian.isStreaming) {
+                      guardian.stopStreaming();
+                      guardian.startStreaming(review.sessionId);
+                    }
+                  }
+                },
+              ),
+              const SizedBox(width: 4),
+              // DETAILS button
+              if (lastPayload != null)
+                SizedBox(
+                  height: 38,
+                  child: ElevatedButton.icon(
+                    onPressed: () =>
+                        showRiskNotificationDialog(context, lastPayload),
+                    icon: const Icon(Icons.visibility, size: 16),
+                    label: const Text(
+                      'DETAILS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
                       ),
                     ),
-                    _severityBadge(theme, severity),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    _metricChip(
-                      theme,
-                      Icons.event,
-                      '${lastPayload?.flags.length ?? 0} flags',
-                      onTap: _scrollToFirstRiskAssessment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: color,
+                      foregroundColor: Colors.white,
+                      elevation: 1,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    _metricChip(
-                      theme,
-                      Icons.timer_outlined,
-                      lastPayload != null
-                          ? _formatTimestamp(lastPayload.generatedAt)
-                          : '—',
-                    ),
-                  ],
+                  ),
                 ),
-              ],
-            ),
+            ],
           ),
+          // Row 2: Incident summary line (operator + paste info)
+          if (lastPayload != null &&
+              (lastPayload.incidentSummary.isNotEmpty ||
+                  lastPayload.employeeDisplayName.isNotEmpty)) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: color.withValues(alpha: 0.15)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.person, size: 14, color: color),
+                  const SizedBox(width: 6),
+                  Text(
+                    lastPayload.employeeDisplayName,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                  if (lastPayload.pasteLineCount > 0) ...[
+                    const SizedBox(width: 12),
+                    Icon(Icons.content_paste, size: 14, color: color),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${lastPayload.pasteSnippets.length} paste(s) · ${lastPayload.pasteLineCount} lines',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  Text(
+                    lastPayload.incidentTimeLabel,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -295,73 +409,110 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
 
   Widget _buildTimelineTile(ThemeData theme, _TimelineEntry entry) {
     final eventColor = _timelineSeverityColor(entry.severity, theme);
+    final hasPayload = entry.riskPayload != null;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       color: theme.colorScheme.surfaceContainerLow,
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Event type icon
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: eventColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                _timelineIcon(entry.eventType),
-                size: 18,
-                color: eventColor,
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Event type icon
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: eventColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _timelineIcon(entry.eventType),
+                    size: 18,
+                    color: eventColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          entry.label,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              entry.label,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                          _severityBadge(theme, entry.severity),
+                        ],
+                      ),
+                      if (entry.detail.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          entry.detail,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatTimestamp(entry.timestamp),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                          fontSize: 10,
+                        ),
                       ),
-                      _severityBadge(theme, entry.severity),
                     ],
                   ),
-                  if (entry.detail.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      entry.detail,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontFamily: 'monospace',
-                        fontSize: 11,
+                ),
+              ],
+            ),
+            // DETAILS button for risk assessment entries
+            if (hasPayload) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  height: 32,
+                  child: ElevatedButton.icon(
+                    onPressed: () =>
+                        showRiskNotificationDialog(context, entry.riskPayload!),
+                    icon: const Icon(Icons.visibility, size: 14),
+                    label: const Text(
+                      'DETAILS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatTimestamp(entry.timestamp),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                      fontSize: 10,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: eventColor,
+                      foregroundColor: Colors.white,
+                      elevation: 1,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -523,11 +674,15 @@ class _TimelineEntry {
   final String detail;
   final String severity;
 
+  /// Carried payload for RISK_ASSESSMENT entries so we can open the full dialog.
+  final RiskAssessmentPayload? riskPayload;
+
   const _TimelineEntry({
     required this.timestamp,
     required this.eventType,
     required this.label,
     required this.detail,
     required this.severity,
+    this.riskPayload,
   });
 }

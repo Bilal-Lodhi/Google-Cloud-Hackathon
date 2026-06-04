@@ -407,6 +407,7 @@ reviewRouter.get("/:sessionId", async (c) => {
         Array.isArray(r["flags"]) ? (r["flags"] as Record<string, unknown>[]) : [];
       const generatedAt =
         (r["generatedAt"] as string) ?? new Date().toISOString();
+      const rawDims = r["dimensionScores"] as Record<string, unknown> | undefined;
       return {
         riskAssessmentId:
           (r["suspicionId"] as string) ?? crypto.randomUUID(),
@@ -414,6 +415,14 @@ reviewRouter.get("/:sessionId", async (c) => {
         employeeId: (r["candidateId"] as string) ?? session.candidateId,
         auditId: (r["assessmentId"] as string) ?? session.assessmentId,
         overallRiskScore: (r["overallRiskScore"] as number) ?? (r["overallScore"] as number) ?? 0,
+        dimensionScores: {
+          dataExfiltration: (rawDims?.["dataExfiltration"] as number) ?? 0,
+          unauthorizedAccess: (rawDims?.["unauthorizedAccess"] as number) ?? 0,
+          policyViolation: (rawDims?.["policyViolation"] as number) ?? 0,
+          amlRedFlag: (rawDims?.["amlRedFlag"] as number) ?? 0,
+          insiderTrading: (rawDims?.["insiderTrading"] as number) ?? 0,
+          soxNonCompliance: (rawDims?.["soxNonCompliance"] as number) ?? 0,
+        },
         flags: rawFlags.map((f) => ({
           // The Hono types use {flagType, severity, sourceEventId, ...}
           // Flutter's AnomalyFlag.fromJson maps them as:

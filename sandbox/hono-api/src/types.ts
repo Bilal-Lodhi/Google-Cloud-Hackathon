@@ -184,12 +184,23 @@ export interface ClientMetadata {
   language: string;
 }
 
+export interface RiskDimensionScores {
+  dataExfiltration: number;     // 0-100
+  unauthorizedAccess: number;   // 0-100
+  policyViolation: number;      // 0-100
+  amlRedFlag: number;           // 0-100
+  insiderTrading: number;       // 0-100
+  soxNonCompliance: number;     // 0-100
+}
+
 export interface RiskAssessmentPayload {
   riskAssessmentId: string;
   sessionId: string;
   employeeId: string;           // Renamed from candidateId
   auditId: string;              // Renamed from assessmentId
   overallRiskScore: number;     // 0-100 risk percentage
+  /** Breakdown by risk category dimension (0-100 each). */
+  dimensionScores: RiskDimensionScores;
   flags: RiskFlag[];
   exfiltrationReport: ExfiltrationReport | null;
   behavioralAnomalies: BehavioralAnomaly[];

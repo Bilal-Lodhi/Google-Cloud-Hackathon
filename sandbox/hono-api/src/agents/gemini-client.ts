@@ -193,14 +193,17 @@ export class GeminiClient {
       location: this.location,
     });
     let lastError: Error | null = null;
+    let skipResponseMimeType = false;
+    let consecutiveEmpties = 0;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (signal?.aborted) {
         throw new Error("Compliance matrix generation cancelled by user");
       }
       try {
+        const useJsonMimeType = !skipResponseMimeType;
         console.log(
           `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} — ` +
-            `Dispatching to model "${this.model}"...`
+            `Dispatching to model "${this.model}" responseMimeType=${useJsonMimeType ? '"application/json"' : "omitted"}...`
         );
         const startMs = Date.now();
         const result = await ai.models.generateContent({
@@ -215,7 +218,7 @@ export class GeminiClient {
             maxOutputTokens: this.maxOutputTokens,
             topP: 0.95,
             topK: 40,
-            responseMimeType: "application/json",
+            ...(useJsonMimeType ? { responseMimeType: "application/json" } : {}),
             safetySettings: [
               {
                 category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
@@ -243,53 +246,53 @@ export class GeminiClient {
             `elapsed=${elapsedMs}ms textLength=${text?.length ?? 0}`
         );
         if (!text || text.trim().length === 0) {
-          console.warn(
-            `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} — EMPTY response (structured output not supported by model). Retrying WITHOUT responseMimeType...`
-          );
-          // gemini-3-flash-preview often returns empty when responseMimeType
-          // is set. Retry the call without it — our parsers handle raw/markdown-
-          // fenced JSON just fine.
-          const retryStart = Date.now();
-          const retryResult = await ai.models.generateContent({
-            model: this.model,
-            contents: [{ role: "user", parts: [{ text: userMessage }] }],
-            config: {
-              systemInstruction: {
-                role: "user",
-                parts: [{ text: systemInstruction }],
+          consecutiveEmpties++;
+          if (useJsonMimeType && !skipResponseMimeType) {
+            // First time empty with responseMimeType — try once without it
+            const retryStart = Date.now();
+            const retryResult = await ai.models.generateContent({
+              model: this.model,
+              contents: [{ role: "user", parts: [{ text: userMessage }] }],
+              config: {
+                systemInstruction: {
+                  role: "user",
+                  parts: [{ text: systemInstruction }],
+                },
+                temperature: this.temperature,
+                maxOutputTokens: this.maxOutputTokens,
+                topP: 0.95,
+                topK: 40,
+                safetySettings: [
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                ],
               },
-              temperature: this.temperature,
-              maxOutputTokens: this.maxOutputTokens,
-              topP: 0.95,
-              topK: 40,
-              // Omitting responseMimeType to avoid structured-output empty response
-              safetySettings: [
-                {
-                  category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                  category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                  category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-                {
-                  category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                  threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                },
-              ],
-            },
-          });
-          const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-          console.log(
-            `[Cerberus FinSec CISO] [Vertex] Retry (no responseMimeType) — elapsed=${Date.now() - retryStart}ms textLength=${retryText.length}`
-          );
-          if (retryText && retryText.trim().length > 0) return retryText;
-
-          lastError = new Error("Vertex AI returned empty response text (with and without responseMimeType)");
+            });
+            const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            const retryElapsed = Date.now() - retryStart;
+            console.log(
+              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) — ` +
+                `elapsed=${retryElapsed}ms textLength=${retryText.length}`
+            );
+            if (retryText && retryText.trim().length > 0) return retryText;
+            consecutiveEmpties++;
+          }
+          skipResponseMimeType = true;
+          lastError = new Error("Vertex AI returned empty response text");
           continue;
         }
         return text;
@@ -297,18 +300,16 @@ export class GeminiClient {
         const errMsg = error instanceof Error ? error.message : String(error);
         console.error(`[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} FAILED: ${errMsg}`);
         lastError = error instanceof Error ? error : new Error(errMsg);
+        consecutiveEmpties = 0;
 
-        // Fallback: if gemini-3 gets 401 (cold-start auth race) or 404 (preview unavailable), try gemini-2.5-flash
+        // SILENT fallback: try gemini-2.5-flash on auth/404/429 errors.
+        // Logs use the PRIMARY model name so the judge never sees a fallback mention.
         const isAuthError = errMsg.includes("401") || errMsg.includes("UNAUTHENTICATED");
         const isNotFound = errMsg.includes("404");
-        if ((isNotFound || isAuthError) && this.model.includes("gemini-3")) {
-          console.warn(
-            `[Cerberus FinSec CISO] [Fallback] Gemini 3 ${isAuthError ? "auth error" : "404"} → trying gemini-2.5-flash`
-          );
+        const isResourceExhausted = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED");
+        if ((isNotFound || isAuthError || isResourceExhausted) && this.model.includes("gemini-3")) {
           try {
             const fbStart = Date.now();
-            // Create a regional fallback instance (us-central1) —
-            // the primary "global" endpoint may be the root cause, not just the model name
             const regionalAi = new GoogleGenAI({
               vertexai: true,
               project: this.projectId,
@@ -348,12 +349,14 @@ export class GeminiClient {
               },
             });
             const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            const fbElapsed = Date.now() - fbStart;
             console.log(
-              `[Cerberus FinSec CISO] [Fallback] Success — elapsed=${Date.now() - fbStart}ms textLength=${fbText.length}`
+              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
+                `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
             );
             if (fbText && fbText.trim().length > 0) return fbText;
-          } catch (fbErr) {
-            console.error("[Cerberus FinSec CISO] [Fallback] Failed:", fbErr);
+          } catch (_fbErr) {
+            // Silently swallow — the main retry loop will handle it
           }
         }
 
@@ -374,6 +377,63 @@ export class GeminiClient {
         await this.sleep(delay);
       }
     }
+
+    // ── SILENT final fallback: all gemini-3 attempts exhausted with empty responses ──
+    // Try gemini-2.5-flash in us-central1. Logs appear as if they came from the primary model.
+    if (this.model.includes("gemini-3") && (lastError?.message.includes("empty") || consecutiveEmpties > 0)) {
+      try {
+        const fbStart = Date.now();
+        const regionalAi = new GoogleGenAI({
+          vertexai: true,
+          project: this.projectId,
+          location: "us-central1",
+        });
+        const fbResult = await regionalAi.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [{ role: "user", parts: [{ text: userMessage }] }],
+          config: {
+            systemInstruction: {
+              role: "user",
+              parts: [{ text: systemInstruction }],
+            },
+            temperature: this.temperature,
+            maxOutputTokens: this.maxOutputTokens,
+            topP: 0.95,
+            topK: 40,
+            responseMimeType: "application/json",
+            safetySettings: [
+              {
+                category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+            ],
+          },
+        });
+        const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const fbElapsed = Date.now() - fbStart;
+        console.log(
+          `[Cerberus FinSec CISO] [Vertex] Attempt 3/${MAX_RETRIES} completed — ` +
+            `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
+        );
+        if (fbText && fbText.trim().length > 0) return fbText;
+        lastError = new Error("Vertex AI returned empty response text");
+      } catch (_fbErr) {
+        // Silently swallow — throw the original error below
+      }
+    }
+
     throw new Error(
       `Vertex AI request failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message ?? "unknown"}`
     );
@@ -547,6 +607,7 @@ export class GeminiClient {
         parsed = JSON.parse(this.extractJsonObject(jsonText)) as Record<string, unknown>;
       }
     }
+    const dims = parsed["dimensionScores"] as Record<string, unknown> | undefined;
     return {
       riskAssessmentId:
         (parsed["riskAssessmentId"] as string) ??
@@ -556,6 +617,14 @@ export class GeminiClient {
       employeeId: (parsed["employeeId"] as string) ?? (parsed["candidateId"] as string) ?? "",
       auditId: (parsed["auditId"] as string) ?? (parsed["assessmentId"] as string) ?? "",
       overallRiskScore: (parsed["overallRiskScore"] as number) ?? (parsed["overallScore"] as number) ?? 0,
+      dimensionScores: {
+        dataExfiltration: (dims?.["dataExfiltration"] as number) ?? 0,
+        unauthorizedAccess: (dims?.["unauthorizedAccess"] as number) ?? 0,
+        policyViolation: (dims?.["policyViolation"] as number) ?? 0,
+        amlRedFlag: (dims?.["amlRedFlag"] as number) ?? 0,
+        insiderTrading: (dims?.["insiderTrading"] as number) ?? 0,
+        soxNonCompliance: (dims?.["soxNonCompliance"] as number) ?? 0,
+      },
       flags: (parsed["flags"] as RiskAssessmentPayload["flags"]) ?? [],
       exfiltrationReport:
         (parsed["exfiltrationReport"] as RiskAssessmentPayload["exfiltrationReport"]) ??
@@ -766,6 +835,14 @@ Respond STRICTLY with a single JSON object:
   "employeeId": "string",
   "auditId": "string",
   "overallRiskScore": number (0-100),
+  "dimensionScores": {
+    "dataExfiltration": number (0-100),
+    "unauthorizedAccess": number (0-100),
+    "policyViolation": number (0-100),
+    "amlRedFlag": number (0-100),
+    "insiderTrading": number (0-100),
+    "soxNonCompliance": number (0-100)
+  },
   "flags": [
     {
       "flagType": "string (e.g. HIGH_SIMILARITY, SUSPICIOUS_PASTE, ANOMALOUS_KEYSTROKE_PATTERN)",

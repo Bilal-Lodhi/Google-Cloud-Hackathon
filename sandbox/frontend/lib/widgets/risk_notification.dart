@@ -166,23 +166,30 @@ class RiskNotificationBanner extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Tap to expand hint
-            Icon(
-              Icons.open_in_full,
-              size: 16,
-              color: theme.colorScheme.outline.withValues(alpha: 0.6),
-            ),
-            if (onDismiss != null) ...[
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: onDismiss,
-                child: Icon(
-                  Icons.close,
-                  size: 16,
-                  color: theme.colorScheme.outline.withValues(alpha: 0.6),
+            // DETAILS button — permanent, non-dismissible
+            SizedBox(
+              height: 36,
+              child: ElevatedButton.icon(
+                onPressed: () => showRiskNotificationDialog(context, payload),
+                icon: const Icon(Icons.visibility, size: 18),
+                label: const Text(
+                  'DETAILS',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: color,
+                  foregroundColor: Colors.white,
+                  elevation: 2,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 0,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -935,14 +942,22 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _FlagCard extends StatelessWidget {
+class _FlagCard extends StatefulWidget {
   final AnomalyFlag flag;
 
   const _FlagCard({required this.flag});
 
   @override
+  State<_FlagCard> createState() => _FlagCardState();
+}
+
+class _FlagCardState extends State<_FlagCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final flag = widget.flag;
     final catColor = _flagCategoryColor(flag.category);
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1004,10 +1019,149 @@ class _FlagCard extends StatelessWidget {
                   fontSize: 11,
                   height: 1.4,
                 ),
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
+                maxLines: _expanded ? null : 4,
+                overflow: _expanded ? null : TextOverflow.ellipsis,
               ),
             ),
+          ],
+          const SizedBox(height: 8),
+          // ── Expand / Collapse "DETAILS" button ──
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              height: 30,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: catColor,
+                ),
+                label: Text(
+                  _expanded ? 'COLLAPSE' : 'DETAILS',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    color: catColor,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+          ),
+          // ── Expanded full details ──
+          if (_expanded) ...[
+            const SizedBox(height: 6),
+            Divider(color: theme.colorScheme.outlineVariant),
+            const SizedBox(height: 6),
+            // Flag ID row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Flag ID: ',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    flag.flagId,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // Category row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Category: ',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: catColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    flag.category.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: catColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // Confidence row
+            Row(
+              children: [
+                Text(
+                  'Confidence: ',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  '${flag.confidence.toStringAsFixed(0)}%',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: catColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // Full evidence snippet
+            if (flag.evidenceSnippet.isNotEmpty) ...[
+              Text(
+                'Evidence:',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: theme.brightness == Brightness.dark
+                      ? Colors.black26
+                      : const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: SelectableText(
+                  flag.evidenceSnippet,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -1172,7 +1326,7 @@ class _DimensionScoreBars extends StatelessWidget {
           child: Row(
             children: [
               SizedBox(
-                width: 130,
+                width: 150,
                 child: Text(
                   entry.label,
                   style: theme.textTheme.labelSmall,
