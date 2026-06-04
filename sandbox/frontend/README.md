@@ -186,9 +186,10 @@ and only the event count was shown as a single-line subtitle.
 The compliance dashboard features a full risk notification system that surfaces
 insider threat incidents in real-time, implemented in `risk_notification.dart`:
 
-- **Risk Notification Banner**: A dismissible banner appears at the top of both
-  wide and narrow dashboard layouts when `alertTriggered` is `true` or the
-  `anomalyRiskIndex` reaches ≥ 45, tap-to-expand into the full incident dialog.
+- **Integrated Risk Notification Banner**: A dismissible banner is embedded
+  directly within `SecurityMetricsPanel`, appearing when `alertTriggered` is
+  `true` or the `anomalyRiskIndex` reaches ≥ 45. Tap the permanent **DETAILS**
+  `ElevatedButton.icon` to expand into the full incident dialog.
 - **Expandable Incident Dialog**: Tabbed detail view with **Flags** and
   **Incident** tabs, collapsible paste snippet sections, code snapshot viewer,
   behavioral context grid, keystroke metrics display, and dimension score bars

@@ -658,7 +658,7 @@ The `RiskAssessmentPayload` type now carries full forensic context:
 | `behavioralContext` | Grid of behavioral flags with type, severity, and timestamp |
 | `keystrokeMetrics` | Inter-keystroke timing deltas, burst patterns, and anomaly scores |
 | `incidentSummary` | Human-readable incident summary with time label |
-| `dimensionScores` | Per-dimension risk scores (paste, keystroke, tab, copy, code similarity) |
+| `dimensionScores` | 6-category risk breakdown: `dataExfiltration`, `unauthorizedAccess`, `policyViolation`, `amlRedFlag`, `insiderTrading`, `soxNonCompliance` (0–100 each) |
 
 ---
 

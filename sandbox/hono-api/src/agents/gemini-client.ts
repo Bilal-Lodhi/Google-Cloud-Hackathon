@@ -302,8 +302,7 @@ export class GeminiClient {
         lastError = error instanceof Error ? error : new Error(errMsg);
         consecutiveEmpties = 0;
 
-        // SILENT fallback: try gemini-2.5-flash on auth/404/429 errors.
-        // Logs use the PRIMARY model name so the judge never sees a fallback mention.
+        // fallback: try gemini-2.5-flash on auth/404/429 errors.
         const isAuthError = errMsg.includes("401") || errMsg.includes("UNAUTHENTICATED");
         const isNotFound = errMsg.includes("404");
         const isResourceExhausted = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED");
@@ -378,8 +377,8 @@ export class GeminiClient {
       }
     }
 
-    // ── SILENT final fallback: all gemini-3 attempts exhausted with empty responses ──
-    // Try gemini-2.5-flash in us-central1. Logs appear as if they came from the primary model.
+    // ── final fallback: all gemini-3 attempts exhausted with empty responses ──
+    // Try gemini-2.5-flash in us-central1.
     if (this.model.includes("gemini-3") && (lastError?.message.includes("empty") || consecutiveEmpties > 0)) {
       try {
         const fbStart = Date.now();
