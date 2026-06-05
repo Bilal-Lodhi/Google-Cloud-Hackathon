@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,7 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
   bool _copied = false;
   String _lastSessionId = '';
   String _previousText = '';
+  final FocusNode _codeFocusNode = FocusNode();
   // Threshold: inserts > this many chars in one edit are classified as paste.
   // Must match backend's hasLargePaste check (≥100 chars) conceptually, but
   // we classify smaller batch edits as PASTE too for accurate paste tracking.
@@ -41,8 +43,90 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _debounceTimer?.cancel();
+    _codeFocusNode.dispose();
     _codeController.dispose();
     super.dispose();
+  }
+
+  // ── Copy handler: copies selected text (or full text if no selection) ──
+
+  /// Copies the currently selected text (or the entire content if no
+  /// selection exists) to the clipboard and dispatches a COPY_ATTEMPT
+  /// telemetry event to the guardian ingest pipeline.
+  Future<void> _handleCopy() async {
+    if (_lastSessionId.isEmpty) return;
+
+    // Read providers before any async gap
+    final reviewProvider = context.read<ReviewProvider>();
+    final guardianProvider = context.read<GuardianProvider>();
+    final sessionId = _lastSessionId;
+
+    final review = reviewProvider.selected;
+    if (review == null) return;
+
+    // Determine text to copy: prefer current selection, fall back to all
+    final selection = _codeController.selection;
+    final hasValidSelection =
+        selection.isValid &&
+        selection.start < selection.end &&
+        selection.baseOffset >= 0 &&
+        selection.extentOffset <= _codeController.text.length;
+    final selectedText = hasValidSelection
+        ? _codeController.text.substring(selection.start, selection.end)
+        : '';
+    final textToCopy = selectedText.isNotEmpty
+        ? selectedText
+        : _codeController.text;
+
+    await Clipboard.setData(ClipboardData(text: textToCopy));
+
+    if (!mounted) return;
+    setState(() => _copied = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+
+    // Show SnackBar feedback
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            selectedText.isNotEmpty
+                ? 'Copied ${textToCopy.length} characters (selected)'
+                : 'Copied ${textToCopy.length} characters to clipboard',
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1A1A2E),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.greenAccent,
+            onPressed: () {},
+          ),
+        ),
+      );
+    }
+
+    // Build and send COPY_ATTEMPT telemetry event
+    final previewLength = textToCopy.length > 100 ? 100 : textToCopy.length;
+    final copyEvent = MicroEvent(
+      sessionId: sessionId,
+      employeeId: review.employeeId,
+      auditId: review.auditId,
+      eventType: 'COPY_ATTEMPT',
+      payload: MicroEventPayload(
+        copyContent: previewLength > 0
+            ? textToCopy.substring(0, previewLength)
+            : textToCopy,
+        copiedLength: textToCopy.length,
+      ),
+      timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    try {
+      await guardianProvider.ingestEvents([copyEvent]);
+    } catch (_) {
+      // Silently swallow — keep working even if ingest is unavailable.
+    }
   }
 
   // ── WidgetsBindingObserver: detect tab switch / window blur ───────────
@@ -423,43 +507,8 @@ void main() {
                   size: 18,
                   color: _copied ? Colors.greenAccent : Colors.white54,
                 ),
-                tooltip: _copied ? 'Copied' : 'Copy',
-                onPressed: () async {
-                  final copiedText = _codeController.text;
-                  // Capture providers before the async gap
-                  final reviewProvider = context.read<ReviewProvider>();
-                  final guardianProvider = context.read<GuardianProvider>();
-                  final sessionId = _lastSessionId;
-
-                  await Clipboard.setData(ClipboardData(text: copiedText));
-                  setState(() => _copied = true);
-                  Future.delayed(const Duration(seconds: 2), () {
-                    if (mounted) setState(() => _copied = false);
-                  });
-
-                  // Send COPY_ATTEMPT telemetry event
-                  if (!mounted || sessionId.isEmpty) return;
-                  final review = reviewProvider.selected;
-                  if (review == null) return;
-
-                  final copyEvent = MicroEvent(
-                    sessionId: sessionId,
-                    employeeId: review.employeeId,
-                    auditId: review.auditId,
-                    eventType: 'COPY_ATTEMPT',
-                    payload: MicroEventPayload(
-                      copyContent: copiedText.length > 200
-                          ? copiedText.substring(0, 200)
-                          : copiedText,
-                    ),
-                    timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
-                  );
-                  try {
-                    await guardianProvider.ingestEvents([copyEvent]);
-                  } catch (_) {
-                    // Silently swallow
-                  }
-                },
+                tooltip: _copied ? 'Copied to clipboard' : 'Copy selected text',
+                onPressed: _handleCopy,
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: 4),
@@ -508,30 +557,46 @@ void main() {
         Expanded(
           child: Container(
             color: const Color(0xFF0D0D1A),
-            child: TextField(
-              controller: _codeController,
-              onChanged: (_) => _onCodeChanged(),
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 13,
-                height: 1.6,
-                color: Color(0xFF00FF88), // Terminal green
-              ),
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.all(16),
-                border: InputBorder.none,
-                hintText: '// Type financial logic here...',
-                hintStyle: TextStyle(
+            child: Focus(
+              onKeyEvent: (node, event) {
+                if (event is KeyDownEvent || event is KeyRepeatEvent) {
+                  final isCtrlPressed = Platform.isMacOS
+                      ? HardwareKeyboard.instance.isMetaPressed
+                      : HardwareKeyboard.instance.isControlPressed;
+                  if (isCtrlPressed &&
+                      event.logicalKey == LogicalKeyboardKey.keyC) {
+                    _handleCopy();
+                    return KeyEventResult.handled;
+                  }
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                focusNode: _codeFocusNode,
+                controller: _codeController,
+                onChanged: (_) => _onCodeChanged(),
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                style: const TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 13,
-                  color: Colors.white24,
+                  height: 1.6,
+                  color: Color(0xFF00FF88), // Terminal green
                 ),
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.all(16),
+                  border: InputBorder.none,
+                  hintText: '// Type financial logic here...',
+                  hintStyle: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    color: Colors.white24,
+                  ),
+                ),
+                cursorColor: const Color(0xFF00FF88),
+                keyboardType: TextInputType.multiline,
               ),
-              cursorColor: const Color(0xFF00FF88),
-              keyboardType: TextInputType.multiline,
             ),
           ),
         ),

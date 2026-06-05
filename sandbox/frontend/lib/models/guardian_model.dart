@@ -304,6 +304,7 @@ class MicroEventPayload {
   final String? pasteContent;
   final String? diffPatch;
   final String? copyContent;
+  final int? copiedLength;
   final String? windowEvent;
   final String? newText;
   final int? changeLength;
@@ -313,6 +314,7 @@ class MicroEventPayload {
     this.pasteContent,
     this.diffPatch,
     this.copyContent,
+    this.copiedLength,
     this.windowEvent,
     this.newText,
     this.changeLength,
