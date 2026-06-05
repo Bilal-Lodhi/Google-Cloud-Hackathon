@@ -61,6 +61,8 @@ interface SessionState {
   fullscreenExitCount: number;
   copyAttemptCount: number;
   lastRiskPayload: RiskAssessmentPayload | null;
+  eventCount: number;
+  status: string;
 }
 
 const sessionStore = new Map<string, SessionState>();
@@ -205,6 +207,36 @@ guardianRouter.post("/ingest", async (c) => {
         console.log(
           `[Guardian Route] [${requestId}] Gemini risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
             `- score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
+        );
+
+        // ── Blend Gemini score with live behavioral counters ──
+        // Gemini returns a semantic analysis score (0-100), but repeated
+        // violations should amplify the risk index. Without this blend,
+        // the anomaly gauge stays static (~88) even after 10+ paste events.
+        const geminiScore = riskPayload.overallRiskScore; // save original before blend
+        const pastePenalty = Math.min(session.pasteCount * 5, 30);        // +5 per paste, cap 30
+        const tabPenalty = Math.min(session.tabSwitchCount * 4, 16);      // +4 per tab switch, cap 16
+        const copyPenalty = Math.min(session.copyAttemptCount * 6, 18);   // +6 per copy, cap 18
+        const fsPenalty = session.fullscreenExitCount > 0 ? 10 : 0;       // +10 for any fullscreen exit
+        const keystrokePenalty = hasAnomalousKeystrokes(session.keystrokeDeltas) ? 12 : 0;
+
+        const behavioralBoost = pastePenalty + tabPenalty + copyPenalty + fsPenalty + keystrokePenalty;
+        // Blend: 60% Gemini score + 40% behavioral boost, capped at 100
+        const blendedScore = Math.min(
+          Math.round(geminiScore * 0.6 + behavioralBoost * 0.4),
+          100
+        );
+        riskPayload.overallRiskScore = blendedScore;
+
+        // Also boost dimension scores proportionally (using original Gemini score)
+        const boostFactor = geminiScore > 0 ? blendedScore / geminiScore : 1.0;
+        riskPayload.dimensionScores.dataExfiltration = Math.min(
+          Math.round(riskPayload.dimensionScores.dataExfiltration * boostFactor + pastePenalty * 0.8),
+          100
+        );
+        riskPayload.dimensionScores.policyViolation = Math.min(
+          Math.round(riskPayload.dimensionScores.policyViolation * boostFactor + tabPenalty * 0.6 + copyPenalty * 0.5),
+          100
         );
 
         // Enrich with complete incident context for MongoDB persistence
@@ -826,7 +858,10 @@ function processEvent(event: MicroEvent): void {
       fullscreenExitCount: 0,
       copyAttemptCount: 0,
       lastRiskPayload: null,
+      eventCount: 0,
+      status: "active",
     };
+    sessionStore.set(event.sessionId, session);
   }
 
   const sess = session;
@@ -920,5 +955,53 @@ async function getReferenceCompletions(
 ): Promise<string[]> {
   return [];
 }
+
+// --- DELETE /api/v1/guardian/sessions/:sessionId --------------------------
+// Kills a live session: removes it from the active-sessions registry so the
+// drawer moves it into the "NEW / INACTIVE" section, resets event counters to
+// zero, and marks the session as "terminated" in both the in-memory store and
+// MongoDB (via MCP).
+
+guardianRouter.delete("/sessions/:sessionId", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const requestId = crypto.randomUUID();
+  console.log(`[Guardian Route] [${requestId}] Incoming DELETE /api/v1/guardian/sessions/${sessionId}`);
+
+  // ── 1. Remove from active-sessions in-memory registry ──
+  //    This causes the drawer to re-categorize the session as "inactive".
+  let killed = false;
+  if (activeSessions.has(sessionId)) {
+    activeSessions.delete(sessionId);
+    killed = true;
+  }
+
+  // ── 2. Reset the persisted session-store entry ──
+  //    eventCount → 0  so it appears under "NEW / INACTIVE" in the drawer.
+  //    status     → "terminated" so the UI can show appropriate styling.
+  const stored = sessionStore.get(sessionId);
+  if (stored) {
+    stored.eventCount = 0;
+    stored.pasteCount = 0;
+    stored.tabSwitchCount = 0;
+    stored.copyAttemptCount = 0;
+    stored.status = "terminated";
+    killed = true;
+  }
+
+  if (!killed) {
+    return c.json({ success: false, error: `Session '${sessionId}' not found` }, 404);
+  }
+
+  // ── 3. Notify MongoDB / MCP that the session is now terminated ──
+  try {
+    await mcpFetch("terminate_session", { sessionId }, requestId);
+    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' terminated (MCP notified)`);
+  } catch (_) {
+    console.warn(`[Guardian Route] [${requestId}] MCP terminate_session failed for '${sessionId}' (non-fatal)`);
+  }
+
+  console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' killed → moved to inactive`);
+  return c.json({ success: true, sessionId, message: "Session killed — moved to inactive" });
+});
 
 export { guardianRouter, sessionStore, activeSessions };

@@ -557,6 +557,21 @@ class ApiService {
     return merged;
   }
 
+  /// Sends a DELETE request to terminate (kill) a live session on the backend.
+  /// Removes the session from in-memory registries and notifies MongoDB via MCP.
+  Future<void> terminateSession(String sessionId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions/$sessionId');
+    final res = await _client
+        .delete(uri, headers: _commonHeaders())
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200 && res.statusCode != 404) {
+      throw ApiException(
+        res.statusCode,
+        'Failed to terminate session: ${res.body}',
+      );
+    }
+  }
+
   void dispose() {
     _client.close();
   }

@@ -356,6 +356,44 @@ void main() {
                 },
                 visualDensity: VisualDensity.compact,
               ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18, color: Colors.white54),
+                tooltip: 'Close this session (keeps it active)',
+                onPressed: () {
+                  final guardian = context.read<GuardianProvider>();
+                  final review = context.read<ReviewProvider>();
+                  guardian.stopStreaming();
+                  review.clearSelection();
+                  _lastSessionId = '';
+                  _codeController.clear();
+                  _previousText = '';
+                },
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                icon: const Icon(
+                  Icons.stop_circle_outlined,
+                  size: 18,
+                  color: Colors.redAccent,
+                ),
+                tooltip: 'Kill session (terminate on backend)',
+                onPressed: () {
+                  final review = context.read<ReviewProvider>();
+                  final guardian = context.read<GuardianProvider>();
+                  final sid = _lastSessionId;
+                  guardian.stopStreaming();
+                  review.clearSelection();
+                  _lastSessionId = '';
+                  _codeController.clear();
+                  _previousText = '';
+                  if (sid.isNotEmpty) {
+                    guardian.terminateSession(sid);
+                  }
+                },
+                visualDensity: VisualDensity.compact,
+              ),
             ],
           ),
         ),

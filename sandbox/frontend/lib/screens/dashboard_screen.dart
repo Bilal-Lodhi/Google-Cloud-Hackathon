@@ -161,6 +161,24 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ),
                     const SizedBox(width: 4),
+                    // Refresh sessions button
+                    IconButton(
+                      icon: Icon(
+                        Icons.refresh,
+                        size: 20,
+                        color: theme.colorScheme.onPrimaryContainer.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                      tooltip: 'Refresh audit sessions',
+                      onPressed: () => review.loadSessions(),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
                     // Drawer close button
                     IconButton(
                       icon: Icon(
@@ -245,12 +263,34 @@ class _DashboardScreenState extends State<DashboardScreen>
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(
-                        'Error: ${review.error}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.error,
-                        ),
-                        textAlign: TextAlign.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.cloud_off,
+                            size: 36,
+                            color: theme.colorScheme.error.withValues(
+                              alpha: 0.6,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Error: ${review.error}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.icon(
+                            onPressed: () => review.loadSessions(),
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('Retry'),
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -448,6 +488,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         : 'inactive';
     return ListTile(
       selected: isSelected,
+      selectedTileColor: theme.colorScheme.primaryContainer.withValues(
+        alpha: 0.4,
+      ),
+      shape: isSelected
+          ? Border(left: BorderSide(color: theme.colorScheme.primary, width: 3))
+          : null,
       leading: hasEvents
           ? CircleAvatar(
               backgroundColor: _riskScoreColor(score, theme),

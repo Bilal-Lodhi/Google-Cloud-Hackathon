@@ -110,6 +110,12 @@ class GuardianProvider extends ChangeNotifier {
     }
   }
 
+  /// Terminates (kills) a session on the backend, removing it from
+  /// in-memory registries and marking it as terminated in MongoDB.
+  Future<void> terminateSession(String sessionId) async {
+    await _api.terminateSession(sessionId);
+  }
+
   /// Deploys a guardrail matrix to a live employee terminal session.
   Future<AuditSession> deployGuardrail({
     required String employeeId,
