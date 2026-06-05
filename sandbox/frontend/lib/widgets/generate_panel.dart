@@ -549,100 +549,146 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
       child: SafeArea(
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              height: MediaQuery.of(context).size.height * 0.88,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Drag handle
-                  Center(
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 10, bottom: 6),
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.3,
-                        ),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  // Header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.shield_moon,
-                          size: 22,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            showResult
-                                ? 'Compliance Matrix Generated'
-                                : showLoading
-                                ? 'Generating...'
-                                : showCancelled
-                                ? 'Generation Cancelled'
-                                : showError
-                                ? 'Generation Failed'
-                                : 'New Assessment Matrix',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
-                          onPressed: _tryClose,
-                          visualDensity: VisualDensity.compact,
-                          tooltip: gen.isLoading
-                              ? 'Cancel generation first'
-                              : 'Close',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  // Body
-                  Expanded(
-                    child: showLoading
-                        ? _buildLoadingState(theme)
-                        : showCancelled
-                        ? _buildCancelledState(theme)
-                        : showError
-                        ? _buildErrorState(theme, gen)
-                        : showResult
-                        ? _buildResultState(theme, gen.matrix!)
-                        : _buildConfigContent(theme),
-                  ),
-                ],
-              ),
-            ),
+          body: _buildDialogCard(
+            theme,
+            gen,
+            showLoading,
+            showCancelled,
+            showError,
+            showResult,
           ),
         ),
       ),
+    );
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Dialog Card Wrapper — centered on tablet/desktop, bottom sheet on mobile
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  Widget _buildDialogCard(
+    ThemeData theme,
+    GenerateProvider gen,
+    bool showLoading,
+    bool showCancelled,
+    bool showError,
+    bool showResult,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 600;
+        Widget card = Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: isWide
+                ? BorderRadius.circular(24)
+                : const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: isWide ? 40 : 20,
+                offset: isWide ? Offset.zero : const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isWide)
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.3,
+                      ),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              // Header
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: isWide ? 16 : 4,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.shield_moon,
+                      size: 22,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        showResult
+                            ? 'Compliance Matrix Generated'
+                            : showLoading
+                            ? 'Generating...'
+                            : showCancelled
+                            ? 'Generation Cancelled'
+                            : showError
+                            ? 'Generation Failed'
+                            : 'New Assessment Matrix',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: _tryClose,
+                      visualDensity: VisualDensity.compact,
+                      tooltip: gen.isLoading
+                          ? 'Cancel generation first'
+                          : 'Close',
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // Body
+              Flexible(
+                child: showLoading
+                    ? _buildLoadingState(theme)
+                    : showCancelled
+                    ? _buildCancelledState(theme)
+                    : showError
+                    ? _buildErrorState(theme, gen)
+                    : showResult
+                    ? _buildResultState(theme, gen.matrix!)
+                    : _buildConfigContent(theme),
+              ),
+            ],
+          ),
+        );
+
+        if (isWide) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 650,
+                maxHeight: constraints.maxHeight * 0.9,
+              ),
+              child: card,
+            ),
+          );
+        }
+
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: constraints.maxHeight * 0.88,
+            ),
+            child: card,
+          ),
+        );
+      },
     );
   }
 
@@ -659,31 +705,59 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
           children: [
             _buildSheetLabel(theme, 'Target System', Icons.dns_outlined),
             const SizedBox(height: 8),
-            ..._targetSystemOptions.where((d) => d['value']!.isNotEmpty).map((
-              sys,
-            ) {
-              final value = sys['value']!;
-              final icon = _targetSystemIcons[value] ?? Icons.shield;
-              final isSelected = _selectedTargetSystem == value;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: ChoiceChip(
-                  avatar: Icon(
-                    icon,
-                    size: 16,
-                    color: isSelected
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.primary,
-                  ),
-                  label: Text(sys['label']!),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    setState(() => _selectedTargetSystem = value);
-                    setSheetState(() {});
-                  },
+            DropdownButtonFormField<String>(
+              value: _selectedTargetSystem.isNotEmpty
+                  ? _selectedTargetSystem
+                  : null,
+              hint: const Text('Select target system...'),
+              isExpanded: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
                 ),
-              );
-            }),
+                prefixIcon: Icon(
+                  _selectedTargetSystem.isNotEmpty
+                      ? (_targetSystemIcons[_selectedTargetSystem] ??
+                            Icons.dns_outlined)
+                      : Icons.dns_outlined,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              items: _targetSystemOptions
+                  .where((d) => d['value']!.isNotEmpty)
+                  .map((sys) {
+                    final value = sys['value']!;
+                    final icon = _targetSystemIcons[value] ?? Icons.shield;
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Row(
+                        children: [
+                          Icon(
+                            icon,
+                            size: 18,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              sys['label']!,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  })
+                  .toList(),
+              onChanged: (value) {
+                setState(() => _selectedTargetSystem = value ?? '');
+                setSheetState(() {});
+              },
+            ),
             const SizedBox(height: 16),
             _buildSheetLabel(
               theme,
@@ -753,14 +827,29 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
             ),
             const SizedBox(height: 16),
             _buildSheetLabel(theme, 'Risk Distribution Weights', Icons.tune),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+            Builder(
+              builder: (_) {
+                final sum = _routineWeight + _elevatedWeight + _criticalWeight;
+                final totalPct = (sum * 100).round();
+                return Text(
+                  'Total: $totalPct%',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 6),
             _buildSheetRiskSlider(
               theme,
               'Routine',
               _routineWeight,
               Colors.green,
               (v) {
-                setState(() => _routineWeight = v);
+                final remaining = 1.0 - _elevatedWeight - _criticalWeight;
+                final capped = v > remaining ? remaining : v;
+                setState(() => _routineWeight = capped);
                 setSheetState(() {});
               },
             ),
@@ -770,7 +859,9 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
               _elevatedWeight,
               Colors.orange,
               (v) {
-                setState(() => _elevatedWeight = v);
+                final remaining = 1.0 - _routineWeight - _criticalWeight;
+                final capped = v > remaining ? remaining : v;
+                setState(() => _elevatedWeight = capped);
                 setSheetState(() {});
               },
             ),
@@ -780,7 +871,9 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
               _criticalWeight,
               Colors.red,
               (v) {
-                setState(() => _criticalWeight = v);
+                final remaining = 1.0 - _routineWeight - _elevatedWeight;
+                final capped = v > remaining ? remaining : v;
+                setState(() => _criticalWeight = capped);
                 setSheetState(() {});
               },
             ),
@@ -852,7 +945,6 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  flex: 2,
                   child: FilledButton.icon(
                     onPressed: _selectedTargetSystem.isEmpty
                         ? null
