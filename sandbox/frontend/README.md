@@ -17,10 +17,11 @@ Track** — Rapid Agent Hackathon 2026.
   - [Compliance Matrix Generation](#compliance-matrix-generation)
   - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
   - [Real-Time Risk Notification UI](#real-time-risk-notification-ui)
+  - [Session Drawer Categorization & Refresh](#session-drawer-categorization--refresh)
+  - [Close & Kill Session Controls](#close--kill-session-controls)
   - [Identity Setup](#identity-setup)
 - [Input Validation & Resilience](#-input-validation--resilience)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
-- [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
 - [State Management](#-state-management)
 - [API Integration](#-api-integration)
 
@@ -208,6 +209,71 @@ insider threat incidents in real-time, implemented in `risk_notification.dart`:
 
 ---
 
+## 📂 Session Drawer Categorization & Refresh
+
+The session drawer (`dashboard_screen.dart`) organizes sessions into
+collapsible category groups for efficient navigation in high-volume
+compliance environments:
+
+### Session Categories
+
+Sessions are automatically sorted by lifecycle state:
+
+| Category | Statuses | Indicator |
+|----------|----------|-----------|
+| **Active Sessions** | `active`, `in_progress` | Green dot |
+| **Flagged Sessions** | `flagged` | Amber warning |
+| **Under Investigation** | `investigating` | Blue info |
+| **Closed Sessions** | `closed`, `cleared` | Grey neutral |
+
+Each category group displays a count badge and can be independently expanded
+or collapsed by the operator, reducing visual clutter.
+
+### Drawer Refresh Button
+
+A dedicated **refresh** `IconButton` in the drawer header triggers a full
+re-fetch of session data through the dual-endpoint fallback chain:
+
+1. Primary: `GET /api/v1/sessions` (MongoDB-backed, 15s timeout)
+2. Fallback: `GET /api/v1/guardian/sessions` (in-memory registry)
+
+An `isLoading` spinner in `ReviewProvider` provides visual feedback during
+the refresh, and the drawer UI rebuilds reactively when new data arrives.
+
+---
+
+## 🛑 Close & Kill Session Controls
+
+The dashboard provides two distinct session lifecycle controls accessible
+from the session drawer and the code workspace toolbar:
+
+### Close Session
+
+Gracefully terminates an active monitoring session via
+`POST /api/v1/guardian/sessions/:id/close`:
+- Sets session status to `"closed"` in-memory and persists to MongoDB Atlas
+- Preserves all historical data (events, suspicion reports, risk payloads)
+- Session moves to the **Closed Sessions** category in the drawer
+
+### Terminate Session
+
+Permanently removes a session via `POST /api/v1/guardian/sessions/:id/terminate`:
+- Removes the session from the in-memory registry
+- **Irreversibly deletes** the session document and all associated micro-events
+  from MongoDB Atlas
+- A confirmation dialog with a warning appears before dispatch
+
+### UI Integration
+
+- **Close button** (grey, `close` icon) — visible on each session tile for
+  sessions in `active` or `in_progress` status
+- **Terminate button** (red, `delete_forever` icon) — shown on long-press or
+  when expanding the tile's action menu
+- **Code workspace overflow menu** (`code_workspace_panel.dart`) also exposes
+  close and terminate actions for the currently monitored session
+
+---
+
 ## 📦 State Management
 
 Uses **Provider** (`ChangeNotifier`) for reactive state management:
@@ -226,6 +292,8 @@ All HTTP calls route through `ApiService` (`lib/services/api_service.dart`):
 - `POST /api/v1/guardian/ingest` — Micro-event telemetry ingestion (batched events)
 - `POST /api/v1/guardian/deploy` — Deploy active monitoring session
 - `GET /api/v1/guardian/sessions/:id` — Live session risk state
+- `POST /api/v1/guardian/sessions/:id/close` — Gracefully close an active session
+- `POST /api/v1/guardian/sessions/:id/terminate` — Irreversibly delete a session
 - `GET /api/v1/sessions` — List all sessions
 - `GET /api/v1/sessions/:id` — Fetch session audit review
 - `POST /api/v1/identity/set` — Register employee identity

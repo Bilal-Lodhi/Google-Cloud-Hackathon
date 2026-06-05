@@ -59,9 +59,13 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
   - [`GET /health` — Health Check](#get-health--health-check)
   - [Identity Endpoints](#-identity-endpoints-personalization-layer)
 - [Input Validation & Resilience](#-input-validation--resilience)
+- [Human-Readable Timestamps](#-human-readable-timestamps)
+- [Defensive JSON Parsing Pipeline](#-defensive-json-parsing-pipeline)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
+- [Session Drawer -- Categorization & Refresh](#-session-drawer--categorization--refresh)
+- [Close & Kill Session Controls](#-close--kill-session-controls)
 - [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
-- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
+- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--10-tools-via-http-adapter)
 - [Agent Design Philosophy](#-agent-design-philosophy)
 - [Hackathon Compliance Checklist](#-hackathon-compliance-checklist)
 - [Telemetry & Testing](#-telemetry--testing)
@@ -117,12 +121,13 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │  │ Collection   │  │ Collection   │  │ Collection   │                  │
 │  └──────────────┘  └──────────────┘  └──────────────┘                  │
 │                                                                         │
-│  Exposes 9 MCP tools via HTTP adapter:                                  │
+│  Exposes 10 MCP tools via HTTP adapter:                                 │
 │  • store_compliance_matrix / get_compliance_matrix                      │
 │  • create_session (monitored employee session)                          │
 │  • ingest_micro_events (batch behavioral telemetry)                     │
 │  • store_suspicion_report (threat analysis)                             │
 │  • get_session_review / get_employee_report / list_sessions             │
+│  • close_session / delete_session (lifecycle controls)                  │
 │  • health_check                                                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -567,6 +572,58 @@ clears automatically when the user begins typing.
 
 ---
 
+## 🕐 Human-Readable Timestamps
+
+All backend timestamps are now normalized through a shared `formatTimestamp()`
+utility (`hono-api/src/utils/time.ts`) that converts ISO-8601 dates and MongoDB
+`ISODate` objects into a human-readable format (`Jun 2, 2026 at 10:30 PM`).
+This ensures consistent timestamp rendering across:
+
+- **Session review responses** (`GET /api/v1/sessions` and `GET /api/v1/sessions/:id`)
+- **Suspicion report `generatedAt` fields** — readable in both the Flutter
+  dashboard and raw API JSON
+- **Micro-event `timestamp` fields** in the session timeline
+- **Session metadata** (`createdAt`, `startedAt`, `lastEventTimestamp`)
+
+The utility handles `Date` objects, ISO strings, and MongoDB `$date` extended
+JSON objects with a graceful fallback to raw values when parsing fails.
+
+---
+
+## 🧩 Defensive JSON Parsing Pipeline
+
+The Gemini response handling in `gemini-client.ts` now implements a robust
+three-tier JSON extraction pipeline to handle malformed or partially-wrapped
+model outputs:
+
+### Tier 1 — Direct Parse
+The raw response text is first attempted as valid JSON via `JSON.parse()`.
+If successful, the structured object is returned immediately — this is the
+fast path for well-formed Gemini outputs.
+
+### Tier 2 — `repairJson()`
+If direct parsing fails, a built-in heuristic repair function attempts to fix
+common structural issues:
+- Missing closing quotes on string values
+- Unescaped double quotes within string values
+- Trailing commas before closing braces/brackets
+- Missing commas between object properties
+- Single-quoted strings (replaced with double quotes)
+
+### Tier 3 — `extractJsonObject()`
+If repair fails, a deep regex-based extraction scans the response for the
+outermost balanced `{ ... }` or `[ ... ]` block. The extractor tracks brace
+depth to find the valid JSON envelope, strips surrounding text or markdown
+fences, and returns the isolated JSON string.
+
+### Graceful Degradation
+If all three tiers fail, the pipeline returns a structured error object with
+`parseSuccess: false`, a `parseError` description, and the `rawText` for
+inspection. This prevents unhandled exceptions from reaching the API layer —
+consumers receive a deterministic error payload instead of a 500 crash.
+
+---
+
 ## 🔄 Session Persistence & Post-Restart Recovery
 
 Deployed compliance sessions survive server restarts and Cloud Run cold starts
@@ -617,6 +674,95 @@ employee each session belongs to at a glance.
 
 ---
 
+---
+
+## 📂 Session Drawer -- Categorization & Refresh
+
+The Flutter dashboard session drawer (`dashboard_screen.dart`) now organizes
+sessions into categorized groups for efficient navigation and provides manual
+refresh capability:
+
+### Session Categorization
+
+Sessions are automatically sorted into collapsible category groups based on
+their lifecycle state:
+
+- **Active Sessions** — sessions in `active` or `in_progress` status with a
+  green status indicator
+- **Flagged Sessions** — sessions with `flagged` status and an amber warning
+  indicator
+- **Under Investigation** — sessions in `investigating` status with a blue
+  info indicator
+- **Closed Sessions** — sessions in `closed` or `cleared` status with a grey
+  neutral indicator
+
+Each category group displays a count badge and can be independently expanded
+or collapsed by the operator, reducing visual clutter in high-volume
+compliance environments.
+
+### Drawer Refresh Button
+
+A dedicated **refresh button** (circular `IconButton` with a `refresh` icon)
+appears in the drawer header. Tapping it triggers a full re-fetch of session
+data through the dual-endpoint fallback chain:
+
+1. Primary call to `GET /api/v1/sessions` (MongoDB-backed)
+2. Automatic fallback to `GET /api/v1/guardian/sessions` if the primary
+   returns empty or times out
+
+An `isLoading` spinner in the `ReviewProvider` provides visual feedback during
+the refresh, and the drawer UI is rebuilt reactively when new data arrives.
+This allows compliance officers to pick up newly deployed sessions without
+closing and reopening the drawer.
+
+---
+
+## 🛑 Close & Kill Session Controls
+
+The Flutter dashboard now provides two distinct session lifecycle controls
+accessible from the session drawer and the code workspace toolbar:
+
+### Close Session (`POST /api/v1/guardian/sessions/:id/close`)
+
+Gracefully terminates an active monitoring session. The Hono API:
+- Sets the session status to `"closed"` in the in-memory `activeSessions` Map
+- Calls the MCP `close_session` tool to persist the status change to MongoDB Atlas
+- Preserves all existing session data (events, suspicion reports, risk payloads)
+  for historical audit review
+
+The session continues to appear in the **Closed Sessions** category of the
+drawer and remains queryable via `GET /api/v1/sessions/:id`.
+
+### Terminate Session (`POST /api/v1/guardian/sessions/:id/terminate`)
+
+Permanently removes a session from the active monitoring registry:
+- Removes the session from the in-memory `activeSessions` Map
+- Calls the MCP tool to **delete** the session document and all associated
+  micro-events from MongoDB Atlas
+- Intended for sessions created in error or test/development cleanup
+
+**⚠️ This action is irreversible** — the Flutter UI shows a confirmation
+dialog with a warning message before dispatching the terminate request.
+
+### UI Integration
+
+- Each session tile in the drawer includes a **Close** button (grey, with a
+  `close` icon) visible for sessions in `active` or `in_progress` status
+- A **Terminate** button (red, with a `delete_forever` icon) is shown only
+  when the operator long-presses a session tile or explicitly expands the
+  tile's action menu
+- The code workspace panel (`code_workspace_panel.dart`) also exposes close
+  and terminate actions in its overflow menu for the currently monitored
+  session
+
+### Backend MCP Integration
+
+A new MCP tool `close_session` has been registered in the HTTP adapter
+(`mcp-server/src/http-adapter.ts`) to handle the session lifecycle state
+transitions, bringing the total MCP tool count to **10 tools**.
+
+---
+
 ## 🔔 Real-Time Risk Notification UI
 
 The Flutter compliance dashboard now features a full-featured risk notification
@@ -662,9 +808,9 @@ The `RiskAssessmentPayload` type now carries full forensic context:
 
 ---
 
-## 🗄️ MongoDB MCP Tools — 9 Tools via HTTP Adapter
+## 🗄️ MongoDB MCP Tools — 10 Tools via HTTP Adapter
 
-The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **9 tools**
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **10 tools**
 via `POST /tools/:toolName`. All database operations route through the
 `MongoStore` class (`mongo-client.ts`) using the MongoDB Node.js native driver
 with Atlas connection pooling.
@@ -710,7 +856,20 @@ across all sessions.
 **Parameters:** none
 **Returns:** `{ success: true, data: SessionSummary[] }`
 
-### Tool 8: `health_check`
+### Tool 8: `close_session`
+**Purpose:** Gracefully close an active monitoring session, persisting the
+status change (`"closed"`) to MongoDB Atlas while preserving all session
+data for historical audit review.
+**Parameters:** `{ sessionId: string }`
+**Returns:** `{ success: true, sessionId: string, status: "closed" }`
+
+### Tool 9: `delete_session`
+**Purpose:** Permanently delete a session document and all associated
+micro-events from MongoDB Atlas. **This action is irreversible.**
+**Parameters:** `{ sessionId: string }`
+**Returns:** `{ success: true, sessionId: string, deletedEvents: number }`
+
+### Tool 10: `health_check`
 **Purpose:** MongoDB connectivity health check with Atlas ping.
 **Returns:** `{ connected: boolean, healthy: boolean, timestamp: string }`
 
@@ -766,7 +925,7 @@ The Guardian operates as a streaming telemetry event processor:
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
-| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 9 registered tools via HTTP adapter |
+| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 10 registered tools via HTTP adapter |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |

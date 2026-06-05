@@ -41,9 +41,13 @@ TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
   - [`GET /health` — Health Check](#get-health--health-check)
   - [Identity Endpoints](#-identity-endpoints-personalization-layer)
 - [Input Validation & Resilience](#-input-validation--resilience)
+- [Human-Readable Timestamps](#-human-readable-timestamps)
+- [Defensive JSON Parsing Pipeline](#-defensive-json-parsing-pipeline)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
+- [Session Drawer -- Categorization & Refresh](#-session-drawer--categorization--refresh)
+- [Close & Kill Session Controls](#-close--kill-session-controls)
 - [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
-- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--9-tools-via-http-adapter)
+- [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--10-tools-via-http-adapter)
 - [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
 - [Security — Credential Handling](#-security--credential-handling)
 - [Agent Design Philosophy](#-agent-design-philosophy)
@@ -135,7 +139,7 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 ┌──────────────────────────────────────────────────────────────────────┐
 │               MCP SERVER — MONGODB ATLAS GROUNDING                    │
 │  • Sessions Collection    • Micro-Events Collection                  │
-│  • Risk Reports           • 9 registered MCP tools                   │
+│  • Risk Reports           • 10 registered MCP tools                  │
 │  • HTTP adapter for Cloud Run sidecar deployment                     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -595,6 +599,102 @@ clears automatically when the user begins typing.
 
 ---
 
+## 🕐 Human-Readable Timestamps
+
+All timestamps across the API layer and Gemini client now use local time
+(`toISOStringLocal()` from `sandbox/hono-api/src/utils/time.ts`) instead of
+UTC ISO strings. This provides human-readable, timezone-aware timestamps in
+every response: compliance matrix `generatedAt`, risk assessment
+`generatedAt`, session `deployedAt`, and all MCP persistence `persistedAt`
+fields. The `formatLocalTime()` helper is used in the Guardian route for
+formatted logging.
+
+---
+
+## 🛡️ Defensive JSON Parsing Pipeline
+
+Gemini occasionally returns string values where arrays-of-objects are
+expected (e.g., `"Req 3.4 (Encryption)"` instead of a `SubMandate[]`
+array). This would crash the Flutter app with a `TypeError: type 'String'
+is not a subtype of type 'Map<String, dynamic>'`. The parsing pipeline now
+implements defense-in-depth at two layers:
+
+### Backend: Safe Array Guards in Gemini Client
+
+`gemini-client.ts` introduces `safeArray()` and `safeStringArray()` helpers
+that guard every top-level array extraction (`threatVectors`, `targetSystems`,
+`regulatoryMandates`, `penetrationScenarios`) and every nested array
+(`subMandates`, `requiredMandateIds`, `mandateIds`, `detectionRules`,
+`flags`, `behavioralAnomalies`). If Gemini returns a non-array value, the
+helper returns `[]` instead of propagating the type mismatch.
+
+### Frontend: `.where()` Guards in Flutter Models
+
+`generate_model.dart` adds `.where((e) => e is Map<String, dynamic>)` guards
+before every `.map()` chain on `List<dynamic>` fields (target systems,
+regulatory mandates, threat vectors, penetration scenarios, sub-mandates).
+String-list fields (`requiredMandateIds`, `logSources`, `detectionRules`)
+use `.whereType<String>()` to filter out non-string values. This ensures
+malformed Gemini responses never crash the compliance dashboard.
+
+---
+
+## 📂 Session Drawer -- Categorization & Refresh
+
+The Flutter session drawer in `dashboard_screen.dart` now categorizes
+sessions into two groups:
+
+- **Active Sessions** (`eventCount > 0`): Displayed under an "ACTIVE (N)"
+  header with a shield icon. Each tile shows the risk score avatar with
+  color coding from green (safe) to red (critical).
+- **New / Inactive Sessions** (`eventCount == 0`): Displayed under a
+  "NEW / INACTIVE (N)" header with a schedule icon. Tiles show a clock
+  icon instead of a risk score avatar.
+
+### Refresh Button
+
+A refresh `IconButton` (🔄 `Icons.refresh`) sits in the drawer header
+next to the close button. Tapping it calls `review.loadSessions()` to
+re-fetch the session list from both backends, updating event counts
+and risk scores in-place.
+
+### Error State with Retry
+
+When the session list fails to load, the drawer displays a `cloud_off`
+icon, the error message, and a **Retry** `FilledButton` so operators can
+re-attempt the fetch without closing and re-opening the drawer.
+
+### Dual-Endpoint Merge with Count Overlay
+
+`ApiService.fetchSessions()` now queries BOTH endpoints concurrently:
+`GET /api/v1/sessions` (MongoDB-backed) and `GET /api/v1/guardian/sessions`
+(in-memory). Results are merged with the guardian's live counters
+(`eventCount`, `pasteCount`, `tabSwitchCount`, `peakRiskScore`) taking
+precedence over the MCP-enriched review data. Guardian-only sessions not
+yet in MongoDB are appended. The merged list is sorted by `startedAt`
+descending so the newest deployments appear first.
+
+---
+
+## ❌ Close & Kill Session Controls
+
+The code workspace panel (`code_workspace_panel.dart`) now exposes two
+session control buttons in the header toolbar:
+
+- **Close (X icon)**: Stops streaming, clears the editor and session
+  selection, but keeps the session active on the backend. Events can
+  still be ingested.
+- **Kill (stop icon, red)**: Stops streaming, clears the editor and
+  session selection, AND sends a `DELETE` request to
+  `DELETE /api/v1/guardian/sessions/:id` to terminate the session on
+  the backend, removing it from in-memory registries and marking it as
+  terminated in MongoDB Atlas.
+
+The `GuardianProvider.terminateSession()` method and
+`ApiService.terminateSession()` HTTP client method support this flow.
+
+---
+
 ## 🔄 Session Persistence & Post-Restart Recovery
 
 Deployed compliance sessions survive server restarts and Cloud Run cold starts
@@ -690,9 +790,9 @@ The `RiskAssessmentPayload` type now carries full forensic context:
 
 ---
 
-## 🗄️ MongoDB MCP Tools — 9 Tools via HTTP Adapter
+## 🗄️ MongoDB MCP Tools — 10 Tools via HTTP Adapter
 
-The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **9 tools**
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) exposes **10 tools**
 via `POST /tools/:toolName`. All database operations route through the
 `MongoStore` class (`mongo-client.ts`) using the MongoDB Node.js native driver
 with Atlas connection pooling.
@@ -708,6 +808,7 @@ with Atlas connection pooling.
 | `get_employee_report` | AGGREGATE | Aggregate suspicion reports for an employee |
 | `list_sessions` | FIND | List all sessions (supports drawer population) |
 | `health_check` | PING | MongoDB connectivity test |
+| `terminate_session` | UPDATE | Mark session as terminated in MongoDB Atlas |
 
 All operations use the MongoDB Node.js native driver with Atlas connection pooling.
 
@@ -863,7 +964,7 @@ The Guardian operates as a streaming telemetry event processor:
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
 | **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
-| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 9 registered tools via HTTP adapter |
+| **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 10 registered tools via HTTP adapter |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
 | **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC) |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |
