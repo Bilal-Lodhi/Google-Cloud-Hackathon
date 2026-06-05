@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/health_provider.dart';
 import '../providers/identity_provider.dart';
 import '../providers/review_provider.dart';
+import '../models/guardian_model.dart';
 import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
 import '../widgets/code_workspace_panel.dart';
@@ -233,14 +234,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
           const Divider(),
-          // Active audit sessions list
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              'ACTIVE AUDIT SESSIONS',
-              style: theme.textTheme.labelSmall,
-            ),
-          ),
+          // ── Categorized audit session list ──
           Expanded(
             child: Builder(
               builder: (context) {
@@ -264,55 +258,83 @@ class _DashboardScreenState extends State<DashboardScreen>
                 if (review.sessions.isEmpty) {
                   return Center(
                     child: Text(
-                      'No active audits',
+                      'No deployed audits',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
                     ),
                   );
                 }
-                return ListView.builder(
-                  itemCount: review.sessions.length,
-                  itemBuilder: (context, index) {
-                    final session = review.sessions[index];
-                    final isSelected =
-                        review.selected?.sessionId == session.sessionId;
-                    final score = session.peakRiskScore;
-                    final statusText = session.alertTriggered
-                        ? '⚠ ALERT'
-                        : 'active';
-                    return ListTile(
-                      selected: isSelected,
-                      leading: CircleAvatar(
-                        backgroundColor: _riskScoreColor(score, theme),
-                        radius: 14,
-                        child: Text(
-                          score.toStringAsFixed(0),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
+
+                // Categorize: active (eventCount > 0) vs new/inactive (eventCount == 0)
+                final activeSessions = review.sessions
+                    .where((s) => s.eventCount > 0)
+                    .toList();
+                final newSessions = review.sessions
+                    .where((s) => s.eventCount == 0)
+                    .toList();
+
+                return ListView(
+                  children: [
+                    // ── Active Sessions Section ──
+                    if (activeSessions.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.shield,
+                              size: 14,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'ACTIVE (${activeSessions.length})',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      title: Text(
-                        session.employeeId,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      ...activeSessions.map(
+                        (session) => _buildSessionTile(theme, review, session),
+                      ),
+                      const Divider(indent: 16, endIndent: 16),
+                    ],
+                    // ── New / Inactive Sessions Section ──
+                    if (newSessions.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 14,
+                              color: theme.colorScheme.outline,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'NEW / INACTIVE (${newSessions.length})',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      subtitle: Text(
-                        '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
-                        style: theme.textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 2,
+                      ...newSessions.map(
+                        (session) => _buildSessionTile(theme, review, session),
                       ),
-                      onTap: () {
-                        review.selectSession(session.sessionId);
-                        Navigator.pop(context);
-                      },
-                    );
-                  },
+                    ],
+                  ],
                 );
               },
             ),
@@ -408,6 +430,54 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Container(
       color: theme.colorScheme.surface,
       child: const SecurityMetricsPanel(),
+    );
+  }
+
+  // ── Shared session tile builder for drawer ───────────────────────────────
+
+  Widget _buildSessionTile(
+    ThemeData theme,
+    ReviewProvider review,
+    SessionSummary session,
+  ) {
+    final isSelected = review.selected?.sessionId == session.sessionId;
+    final score = session.peakRiskScore;
+    final hasEvents = session.eventCount > 0;
+    final statusText = hasEvents
+        ? (session.alertTriggered ? '⚠ ALERT' : 'active')
+        : 'inactive';
+    return ListTile(
+      selected: isSelected,
+      leading: hasEvents
+          ? CircleAvatar(
+              backgroundColor: _riskScoreColor(score, theme),
+              radius: 14,
+              child: Text(
+                score.toStringAsFixed(0),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          : Icon(Icons.schedule, size: 28, color: theme.colorScheme.outline),
+      title: Text(
+        session.employeeId,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
+        style: theme.textTheme.bodySmall,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 2,
+      ),
+      onTap: () {
+        review.selectSession(session.sessionId);
+        Navigator.pop(context);
+      },
     );
   }
 }

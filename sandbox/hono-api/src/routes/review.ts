@@ -33,7 +33,7 @@
 import { Hono } from "hono";
 import type { SessionReviewResponse, RiskAssessmentPayload } from "../types.js";
 import { toISOStringLocal } from "../utils/time.js";
-import { sessionStore } from "./guardian.js";
+import { sessionStore, activeSessions } from "./guardian.js";
 
 const reviewRouter = new Hono();
 
@@ -55,11 +55,18 @@ const MCP_TIMEOUT_MS = 5_000;
  * Executes an MCP HTTP fetch with a hard timeout. Returns the Response
  * on success, or null if the call timed out / errored.
  */
-async function mcpFetch(
+/**
+ * Executes an MCP HTTP fetch with a hard timeout.  **Consumes the body
+ * immediately inside this function** and returns the parsed JSON (or null
+ * on failure / timeout).  Returning the raw Response was causing "Body is
+ * unusable: Body has already been read" crashes because some Node.js runtimes
+ * tear down the body stream before the caller gets to it.
+ */
+async function mcpFetch<T = unknown>(
   tool: string,
   body: unknown,
   requestId: string
-): Promise<Response | null> {
+): Promise<T | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     console.warn(
@@ -79,7 +86,23 @@ async function mcpFetch(
     console.log(
       `[Review MCP] [${requestId}] ${tool} completed — HTTP ${res.status} in ${Date.now() - startMs}ms`
     );
-    return res;
+
+    if (!res.ok) {
+      // Drain the body on non-ok responses to prevent connection pool corruption
+      try { await res.text(); } catch { /* ignore drain errors */ }
+      return null;
+    }
+
+    try {
+      const data = (await res.json()) as T;
+      return data;
+    } catch (parseErr) {
+      console.error(
+        `[Review MCP] [${requestId}] ${tool} JSON parse failed:`,
+        parseErr instanceof Error ? parseErr.message : String(parseErr)
+      );
+      return null;
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       console.error(
@@ -94,6 +117,28 @@ async function mcpFetch(
     return null;
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Wraps mcpFetch with an additional safety net: ensures that any uncaught
+ * error (including "Body is unusable" from a corrupted response stream)
+ * is swallowed and returns null rather than propagating to crash
+ * Promise.all in the enrichment pipeline.
+ */
+async function safeMcpFetch<T = unknown>(
+  tool: string,
+  body: unknown,
+  requestId: string
+): Promise<T | null> {
+  try {
+    return await mcpFetch<T>(tool, body, requestId);
+  } catch (fatalErr) {
+    console.error(
+      `[Review MCP] [${requestId}] ${tool} FATAL:`,
+      fatalErr instanceof Error ? fatalErr.message : String(fatalErr)
+    );
+    return null;
   }
 }
 
@@ -135,32 +180,28 @@ reviewRouter.get("/", async (c) => {
     const allSessions: McpSessionEntry[] = [];
 
     // --- Path A: Try MCP list_sessions (durable MongoDB) ---
-    const res = await mcpFetch("list_sessions", {}, requestId);
-    if (res?.ok) {
-      try {
-        const mcpResult = (await res.json()) as {
-          success: boolean;
-          data?: McpSessionEntry[];
-        };
-        if (mcpResult.success && Array.isArray(mcpResult.data)) {
-          for (const s of mcpResult.data) {
-            if (!seenIds.has(s.sessionId)) {
-              allSessions.push(s);
-              seenIds.add(s.sessionId);
-            }
-          }
-          console.log(
-            `[Review Route] [${requestId}] MCP list_sessions returned ${mcpResult.data.length} sessions`
-          );
+    const mcpListResult = await mcpFetch<{
+      success: boolean;
+      data?: McpSessionEntry[];
+    }>("list_sessions", {}, requestId);
+
+    if (mcpListResult?.success && Array.isArray(mcpListResult.data)) {
+      for (const s of mcpListResult.data) {
+        if (!seenIds.has(s.sessionId)) {
+          allSessions.push(s);
+          seenIds.add(s.sessionId);
         }
-      } catch {
-        console.warn(
-          `[Review Route] [${requestId}] Failed to parse MCP list_sessions response — continuing with sessionStore`
-        );
       }
-    } else {
+      console.log(
+        `[Review Route] [${requestId}] MCP list_sessions returned ${mcpListResult.data.length} sessions`
+      );
+    } else if (!mcpListResult) {
       console.warn(
         `[Review Route] [${requestId}] MCP list_sessions unavailable — using sessionStore alone`
+      );
+    } else {
+      console.warn(
+        `[Review Route] [${requestId}] MCP list_sessions returned unexpected response — continuing with sessionStore`
       );
     }
 
@@ -182,8 +223,34 @@ reviewRouter.get("/", async (c) => {
         }
       }
       console.log(
-        `[Review Route] [${requestId}] sessionStore contributed ${sessionStore.size} entries (${allSessions.length - (res?.ok ? (await res?.json?.() as any)?.data?.length ?? 0 : 0)} new)`
+        `[Review Route] [${requestId}] sessionStore contributed ${sessionStore.size} entries to union`
       );
+    }
+
+    // --- Path C: Add sessions from activeSessions that haven't appeared yet ---
+    // These are freshly deployed sessions that haven't ingested any events.
+    // They MUST appear in the drawer so the user can activate them.
+    if (activeSessions.size > 0) {
+      let addedFromRegistry = 0;
+      for (const [sid, active] of activeSessions) {
+        if (!seenIds.has(sid)) {
+          allSessions.push({
+            sessionId: sid,
+            candidateId: active.employeeId ?? "unknown",
+            assessmentId: active.matrixId ?? "",
+            status: active.status,
+            createdAt: active.deployedAt ?? toISOStringLocal(),
+            updatedAt: active.deployedAt ?? toISOStringLocal(),
+          });
+          seenIds.add(sid);
+          addedFromRegistry++;
+        }
+      }
+      if (addedFromRegistry > 0) {
+        console.log(
+          `[Review Route] [${requestId}] activeSessions contributed ${addedFromRegistry} entries to union (newly deployed)`
+        );
+      }
     }
 
     if (allSessions.length === 0) {
@@ -192,6 +259,13 @@ reviewRouter.get("/", async (c) => {
       );
       return c.json({ success: true, data: [] });
     }
+
+    // Sort by createdAt descending so newest deployed sessions appear at top
+    allSessions.sort((a, b) => {
+      const aTime = a.createdAt ?? "";
+      const bTime = b.createdAt ?? "";
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
 
     console.log(
       `[Review Route] [${requestId}] ${allSessions.length} total sessions (MCP + sessionStore union) — enriching...`
@@ -212,25 +286,20 @@ reviewRouter.get("/", async (c) => {
         let lastEventTimestamp: string | null = s.updatedAt ?? null;
 
         // ── Try MCP enrichment for persisted data (durable, but may timeout) ──
-        const reviewRes = await mcpFetch(
-          "get_session_review",
-          { sessionId: s.sessionId },
-          requestId
-        );
+        const reviewData = await safeMcpFetch<{
+          success: boolean;
+          events?: Array<{
+            eventType: string;
+            timestamp: string;
+          }>;
+          suspicionReports?: Array<{
+            overallRiskScore: number;
+          }>;
+        }>("get_session_review", { sessionId: s.sessionId }, requestId);
 
-        if (reviewRes?.ok) {
+        if (reviewData?.success && reviewData.events) {
           try {
-            const reviewData = (await reviewRes.json()) as {
-              success: boolean;
-              events?: Array<{
-                eventType: string;
-                timestamp: string;
-              }>;
-              suspicionReports?: Array<{
-                overallRiskScore: number;
-              }>;
-            };
-            if (reviewData.success && reviewData.events) {
+            if (reviewData.events) {
               // Merge: MCP may have events persisted to MongoDB that the
               // in-memory store doesn't (e.g. if the server restarted between
               // ingestion and now). Take the max of both sources.
@@ -335,26 +404,7 @@ reviewRouter.get("/:sessionId", async (c) => {
   const memSession = sessionStore.get(sessionId);
 
   try {
-    const mcpRes = await mcpFetch(
-      "get_session_review",
-      { sessionId },
-      requestId
-    );
-
-    if (!mcpRes || !mcpRes.ok) {
-      if (mcpRes) {
-        const errBody = await mcpRes.text().catch(() => "<unreadable>");
-        console.error(
-          `[Review Route] [${requestId}] get_session_review failed: HTTP ${mcpRes.status} ${errBody.substring(0, 300)}`
-        );
-      }
-      return c.json(
-        { success: false, error: `Session '${sessionId}' not found` },
-        404
-      );
-    }
-
-    const mcpData = (await mcpRes.json()) as {
+    const mcpData = await mcpFetch<{
       success: boolean;
       session?: {
         sessionId: string;
@@ -370,7 +420,161 @@ reviewRouter.get("/:sessionId", async (c) => {
         payload?: Record<string, unknown>;
       }>;
       suspicionReports?: Array<Record<string, unknown>>;
-    };
+    }>("get_session_review", { sessionId }, requestId);
+
+    if (!mcpData) {
+      console.error(
+        `[Review Route] [${requestId}] get_session_review failed or timed out — falling back to in-memory session`
+      );
+
+      if (memSession) {
+        console.log(
+          `[Review Route] [${requestId}] Serving session '${sessionId}' from in-memory store ` +
+            `(events=${memSession.events.length}, riskPayload=${memSession.lastRiskPayload != null ? "present" : "null"})`
+        );
+
+        const fallbackTimeline = memSession.events.map((event) => {
+          const rawType = event.eventType ?? "";
+          let severity: "info" | "warning" | "critical" = "info";
+          let detail = "";
+
+          // Build human-readable label for the Flutter UI
+          const safeFallbackLabel = (raw: string): string => {
+            if (!raw) return "Unknown Event";
+            // Keep the MicroEventType value as-is — the Flutter timeline widget
+            // maps it via _timelineIcon() and display text is derived from it.
+            return raw
+              .replace(/_/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+          };
+          const label = safeFallbackLabel(rawType);
+
+          switch (rawType) {
+            case "KEYSTROKE":
+              detail = `Delta: ${event.payload?.deltaMs ?? "N/A"}ms`;
+              if (
+                typeof event.payload?.deltaMs === "number" &&
+                (event.payload.deltaMs as number) < 80
+              ) {
+                severity = "warning";
+              }
+              break;
+            case "PASTE_TRIGGER":
+              detail = `Content length: ${(event.payload?.pasteContent as string)?.length ?? 0} chars`;
+              severity = "critical";
+              break;
+            case "CODE_DELTA":
+              detail = `Diff size: ${(event.payload?.diffPatch as string)?.length ?? 0} chars`;
+              severity = "info";
+              break;
+            case "TAB_SWITCH":
+              detail = `Visibility: ${event.payload?.visibilityState ?? "unknown"}`;
+              severity = "warning";
+              break;
+            case "WINDOW_BLUR":
+              detail = "Candidate left the test window";
+              severity = "warning";
+              break;
+            case "COPY_ATTEMPT":
+              detail = `Selected: ${((event.payload?.selectedText as string)?.length ?? 0)} chars`;
+              severity = "critical";
+              break;
+            case "DEVELOPER_TOOLS_OPEN":
+              detail = "Browser developer console activated";
+              severity = "critical";
+              break;
+            case "FULLSCREEN_EXIT":
+              detail = "Candidate exited fullscreen mode";
+              severity = "critical";
+              break;
+            case "SUBMIT":
+              detail = "Final answer submitted";
+              severity = "info";
+              break;
+            case "EDIT":
+              detail = `Snapshot: ${(event.payload?.newText as string)?.length ?? 0} chars`;
+              severity = "info";
+              break;
+            case "PASTE":
+              detail = `Inserted ${event.payload?.changeLength ?? "?"} chars`;
+              severity = "critical";
+              break;
+            default:
+              detail = JSON.stringify(event.payload ?? {});
+              severity = "info";
+              break;
+          }
+
+          return {
+            timestamp: event.timestamp,
+            eventType: rawType || "KEYSTROKE",
+            label,
+            severity,
+            detail,
+          };
+        });
+
+        // Build riskSummary from in-memory lastRiskPayload
+        const riskSummary: RiskAssessmentPayload[] =
+          memSession.lastRiskPayload != null
+            ? [{
+                riskAssessmentId: memSession.lastRiskPayload.riskAssessmentId ?? crypto.randomUUID(),
+                sessionId: memSession.lastRiskPayload.sessionId ?? sessionId,
+                employeeId: memSession.lastRiskPayload.employeeId ?? memSession.employeeId,
+                auditId: memSession.lastRiskPayload.auditId ?? memSession.auditId,
+                overallRiskScore: memSession.lastRiskPayload.overallRiskScore ?? 0,
+                dimensionScores: memSession.lastRiskPayload.dimensionScores ?? {
+                  dataExfiltration: 0,
+                  unauthorizedAccess: 0,
+                  policyViolation: 0,
+                  amlRedFlag: 0,
+                  insiderTrading: 0,
+                  soxNonCompliance: 0,
+                },
+                flags: (memSession.lastRiskPayload.flags ?? []).map((f) => {
+                  const flag = f as unknown as Record<string, unknown>;
+                  return {
+                    flagType: (flag["flagType"] as string) ?? "unknown",
+                    severity: ((flag["severity"] as string) || "medium") as "low" | "medium" | "high" | "critical",
+                    sourceEventId: (flag["sourceEventId"] as string) ?? "",
+                    description: (flag["description"] as string) ?? "",
+                    confidence: (flag["confidence"] as number) ?? 1,
+                    timestamp: (flag["timestamp"] as string) ?? toISOStringLocal(),
+                  };
+                }),
+                exfiltrationReport: memSession.lastRiskPayload.exfiltrationReport ?? null,
+                behavioralAnomalies: memSession.lastRiskPayload.behavioralAnomalies ?? [],
+                generatedAt: memSession.lastRiskPayload.generatedAt ?? toISOStringLocal(),
+              } as RiskAssessmentPayload]
+            : [];
+
+        const fallbackResponse: SessionReviewResponse = {
+          sessionId,
+          employeeId: memSession.employeeId ?? "unknown",
+          auditId: memSession.auditId ?? "",
+          status: riskSummary.length > 0 ? "flagged" : "active",
+          terminalContent: memSession.currentCode ?? "",
+          timeline: fallbackTimeline,
+          riskSummary,
+          finalRiskScore: memSession.lastRiskPayload?.overallRiskScore ?? 0,
+        };
+
+        console.log(
+          `[Review Route] [${requestId}] Fallback COMPLETE — status=${fallbackResponse.status} ` +
+            `events=${fallbackTimeline.length} risks=${riskSummary.length} finalRiskScore=${fallbackResponse.finalRiskScore}`
+        );
+        return c.json({ success: true, data: fallbackResponse });
+      }
+
+      // No in-memory data either — genuinely not found
+      console.error(
+        `[Review Route] [${requestId}] Session '${sessionId}' not found (MCP down + no in-memory data)`
+      );
+      return c.json(
+        { success: false, error: `Session '${sessionId}' not found` },
+        404
+      );
+    }
 
     if (!mcpData.success || !mcpData.session) {
       console.warn(`[Review Route] [${requestId}] Session '${sessionId}' not found in MongoDB`);

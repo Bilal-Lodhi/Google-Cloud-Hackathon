@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/guardian_model.dart';
 
 /// ─── Cerberus FinSec — Risk Notification Dialog ──────────────────────────
@@ -330,10 +331,7 @@ class _RiskNotificationOverlayState extends State<_RiskNotificationOverlay>
                           ),
                           const SizedBox(width: 8),
                           FilledButton.icon(
-                            onPressed: () {
-                              // Copy incident to clipboard
-                              _copyIncident(context, payload);
-                            },
+                            onPressed: () => _copyIncident(context, payload),
                             icon: const Icon(Icons.copy, size: 18),
                             label: const Text('Copy Report'),
                             style: FilledButton.styleFrom(
@@ -753,59 +751,62 @@ class _RiskNotificationOverlayState extends State<_RiskNotificationOverlay>
     );
   }
 
-  VoidCallback _copyIncident(
-    BuildContext context,
-    RiskAssessmentPayload payload,
-  ) {
-    return () {
-      final buffer = StringBuffer();
-      buffer.writeln('═════ CERBERUS FINSEC INCIDENT REPORT ═════');
-      buffer.writeln('Time: ${payload.incidentTimeLabel}');
-      buffer.writeln('Operator: ${payload.employeeDisplayName}');
+  void _copyIncident(BuildContext context, RiskAssessmentPayload payload) {
+    final buffer = StringBuffer();
+    buffer.writeln('═════ CERBERUS FINSEC INCIDENT REPORT ═════');
+    buffer.writeln('Time: ${payload.incidentTimeLabel}');
+    buffer.writeln('Operator: ${payload.employeeDisplayName}');
+    buffer.writeln(
+      'Risk Score: ${payload.overallRiskScore.toStringAsFixed(0)}%',
+    );
+    buffer.writeln('Summary: ${payload.incidentSummary}');
+    buffer.writeln('');
+    buffer.writeln('── Flags ──');
+    for (final f in payload.flags) {
       buffer.writeln(
-        'Risk Score: ${payload.overallRiskScore.toStringAsFixed(0)}%',
+        '  [${f.category}] ${f.description} (${f.confidence.toStringAsFixed(0)}%)',
       );
-      buffer.writeln('Summary: ${payload.incidentSummary}');
-      buffer.writeln('');
-      buffer.writeln('── Flags ──');
-      for (final f in payload.flags) {
-        buffer.writeln(
-          '  [${f.category}] ${f.description} (${f.confidence.toStringAsFixed(0)}%)',
-        );
-        buffer.writeln('    Evidence: ${f.evidenceSnippet}');
-      }
-      if (payload.pasteSnippets.isNotEmpty) {
-        buffer.writeln('');
-        buffer.writeln(
-          '── Paste Content (${payload.pasteSnippets.length} · ${payload.pasteLineCount} lines) ──',
-        );
-        for (var i = 0; i < payload.pasteSnippets.length; i++) {
-          buffer.writeln(
-            '  #${i + 1}: ${payload.pasteSnippets[i].length} chars',
-          );
-        }
-      }
+      buffer.writeln('    Evidence: ${f.evidenceSnippet}');
+    }
+    if (payload.pasteSnippets.isNotEmpty) {
       buffer.writeln('');
       buffer.writeln(
-        '── Code Snapshot (${payload.codeSnapshot.length} chars) ──',
+        '── Paste Content (${payload.pasteSnippets.length} · ${payload.pasteLineCount} lines) ──',
       );
-      buffer.writeln(payload.codeSnapshot);
-      buffer.writeln('');
-      buffer.writeln('── Gemini Reasoning ──');
-      buffer.writeln(payload.auditReasoning);
+      for (var i = 0; i < payload.pasteSnippets.length; i++) {
+        buffer.writeln('  #${i + 1}: ${payload.pasteSnippets[i].length} chars');
+      }
+    }
+    buffer.writeln('');
+    buffer.writeln(
+      '── Code Snapshot (${payload.codeSnapshot.length} chars) ──',
+    );
+    buffer.writeln(payload.codeSnapshot);
+    buffer.writeln('');
+    buffer.writeln('── Gemini Reasoning ──');
+    buffer.writeln(payload.auditReasoning);
 
-      // Copy using clipboard
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Incident report copied to clipboard'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-
-      // In Flutter web, clipboard is async
-      // ignore: unused_local_variable
-      final _ = buffer.toString();
-    };
+    // Copy using clipboard
+    Clipboard.setData(ClipboardData(text: buffer.toString())).then((_) {
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.check_circle, color: Colors.green, size: 40),
+            title: const Text('Copied to Clipboard'),
+            content: const Text(
+              'The incident report has been copied to your clipboard.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    });
   }
 }
 

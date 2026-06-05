@@ -537,13 +537,22 @@ class ApiService {
       );
     }).toList();
 
-    // Append any guardian-only sessions not in the review list
+    // Append any guardian-only sessions not in the review list.
+    // Collect them first, then sort merged list by startedAt descending
+    // so the newest deployed sessions always appear at the top.
     final reviewIds = merged.map((s) => s.sessionId).toSet();
     for (final gs in guardianSessions) {
       if (!reviewIds.contains(gs.sessionId)) {
-        merged.insert(0, gs); // Prepend most recent at top
+        merged.add(gs);
       }
     }
+
+    // Sort entire merged list by startedAt descending (newest first)
+    merged.sort((a, b) {
+      final aTime = DateTime.tryParse(a.startedAt) ?? DateTime(1970);
+      final bTime = DateTime.tryParse(b.startedAt) ?? DateTime(1970);
+      return bTime.compareTo(aTime);
+    });
 
     return merged;
   }

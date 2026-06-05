@@ -415,23 +415,6 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
       return 'Please enter a prompt describing the compliance audit or '
           'threat matrix you want to generate.';
     }
-    if (RegExp(
-      r'^(hi|hey|hello|yo|sup|hola|howdy|greetings|good\s+'
-      r'(morning|afternoon|evening|night))\s*[!.,]*$',
-      caseSensitive: false,
-    ).hasMatch(trimmed)) {
-      return 'This AI generates compliance policy and threat matrices. '
-          'Describe the target system and regulatory mandates to audit.';
-    }
-    if (RegExp(
-      r'^(ok|okay|k|kk|alright|fine|cool|nice|great|awesome|thanks|thx|ty|'
-      r'thank\s+you|bye|goodbye|see\s+you|cya|ttyl|later|no|yes|nope|yep|'
-      r'idk|idc|wtf|lol|rofl|lmao|omg|bruh|whatever|meh)\s*[!.,]*$',
-      caseSensitive: false,
-    ).hasMatch(trimmed)) {
-      return 'This AI generates compliance policy and threat matrices. '
-          'Describe the target system and regulatory mandates to audit.';
-    }
     return null;
   }
 

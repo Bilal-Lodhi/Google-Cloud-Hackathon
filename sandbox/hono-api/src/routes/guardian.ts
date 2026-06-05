@@ -509,18 +509,21 @@ guardianRouter.post("/deploy", async (c) => {
 });
 
 // --- GET /api/v1/guardian/sessions --------------------------------------
-// Lists all sessions. Uses sessionStore as the AUTHORITATIVE source
-// (any session that has ingested events appears here, regardless of
-// whether /deploy was called). Falls back to MongoDB via MCP when
-// sessionStore is empty (post-restart).
+// Lists ALL sessions from a UNION of:
+//   1. sessionStore     (in-memory, authoritative live event counts)
+//   2. activeSessions   (deploy registry, shows NEW sessions with 0 events)
+//   3. MongoDB MCP      (durable fallback for post-restart recovery)
+//
+// This ensures the Flutter left drawer always shows every session —
+// including freshly deployed ones that haven't ingested any events yet.
 
 guardianRouter.get("/sessions", async (c) => {
   const requestId = crypto.randomUUID();
 
-  // Path A: In-memory sessionStore (authoritative live data)
-  // sessionStore contains every session that has ingested events,
-  // regardless of whether /deploy was called first. This ensures
-  // the left drawer always shows sessions with accurate live counts.
+  const seenIds = new Set<string>();
+  const allSessions: Array<Record<string, unknown>> = [];
+
+  // ── Path A1: In-memory sessionStore (authoritative live data) ──
   if (sessionStore.size > 0) {
     const entries = Array.from(sessionStore.entries());
     // Sort by the timestamp of the first event (most recent first)
@@ -530,11 +533,11 @@ guardianRouter.get("/sessions", async (c) => {
       return new Date(bTime).getTime() - new Date(aTime).getTime();
     });
 
-    const enriched = entries.map(([sessionId, state]) => {
-      // Merge metadata from activeSessions if /deploy was called
+    for (const [sessionId, state] of entries) {
+      seenIds.add(sessionId);
       const active = activeSessions.get(sessionId);
       const deployedAt = active?.deployedAt ?? state.events[0]?.timestamp ?? toISOStringLocal();
-      return {
+      allSessions.push({
         sessionId,
         employeeId: state.employeeId ?? active?.employeeId ?? "unknown",
         auditId: state.auditId ?? active?.matrixId ?? "",
@@ -550,93 +553,130 @@ guardianRouter.get("/sessions", async (c) => {
         pasteCount: state.pasteCount,
         tabSwitchCount: state.tabSwitchCount,
         alertTriggered: (state.lastRiskPayload?.overallRiskScore ?? 0) >= 75,
-      };
-    });
-
-    console.log(
-      `[Guardian Route] GET /sessions - ${enriched.length} sessions from sessionStore (in-memory)`
-    );
-    return c.json({ success: true, data: enriched });
-  }
-
-  // Path B: MongoDB fallback via MCP list_sessions (post-restart)
-  console.log(
-    `[Guardian Route] [${requestId}] In-memory sessionStore empty, querying MongoDB via MCP list_sessions...`
-  );
-
-  const listRes = await mcpFetch("list_sessions", {}, requestId);
-
-  if (listRes?.ok) {
-    try {
-      const listData = (await listRes.json()) as {
-        success: boolean;
-        data?: Array<Record<string, unknown>>;
-      };
-
-      if (listData.success && Array.isArray(listData.data) && listData.data.length > 0) {
-        const enriched = listData.data.map((doc) => {
-          const sessionId = String(doc["sessionId"] ?? doc["_id"] ?? "");
-          const employeeId = String(doc["employeeId"] ?? doc["candidateId"] ?? "unknown");
-          const matrixId = String(doc["auditId"] ?? doc["assessmentId"] ?? doc["matrixId"] ?? "");
-          const deployedAt = String(doc["deployedAt"] ?? doc["createdAt"] ?? toISOStringLocal());
-          const rawStatus = String(doc["status"] ?? "active");
-          const status = (
-            ["active", "flagged", "investigating", "cleared"].includes(rawStatus)
-              ? rawStatus
-              : "active"
-          ) as ActiveSession["status"];
-          const riskScore = Number(doc["peakRiskScore"] ?? doc["overallRiskScore"] ?? doc["riskIndex"] ?? 0);
-          const eventCount = Number(doc["eventCount"] ?? 0);
-
-          if (!activeSessions.has(sessionId)) {
-            activeSessions.set(sessionId, {
-              sessionId,
-              employeeId,
-              matrixId,
-              targetSystem: "",
-              status,
-              deployedAt,
-              riskIndex: riskScore,
-            });
-          }
-
-          return {
-            sessionId,
-            employeeId,
-            auditId: matrixId,
-            matrixId,
-            targetSystem: "",
-            status,
-            deployedAt,
-            startedAt: deployedAt,
-            createdAt: deployedAt,
-            riskIndex: riskScore,
-            peakRiskScore: riskScore,
-            eventCount,
-            pasteCount: Number(doc["pasteCount"] ?? 0),
-            tabSwitchCount: Number(doc["tabSwitchCount"] ?? 0),
-            alertTriggered: riskScore >= 75,
-          };
-        });
-
-        console.log(
-          `[Guardian Route] GET /sessions - ${enriched.length} sessions restored from MongoDB`
-        );
-        return c.json({ success: true, data: enriched });
-      }
-    } catch (parseError) {
-      console.error(
-        `[Guardian Route] [${requestId}] Failed to parse MCP list_sessions response:`,
-        parseError instanceof Error ? parseError.message : String(parseError)
-      );
+      });
     }
   }
 
-  // Path C: Nothing in memory AND nothing in MongoDB
+  // ── Path A2: activeSessions that are NOT in sessionStore ──
+  // These are sessions deployed via /deploy but haven't ingested any
+  // events yet. They MUST appear in the drawer so the user can activate
+  // them (start ingesting events).
+  if (activeSessions.size > 0) {
+    for (const [sessionId, active] of activeSessions) {
+      if (!seenIds.has(sessionId)) {
+        seenIds.add(sessionId);
+        allSessions.push({
+          sessionId,
+          employeeId: active.employeeId ?? "unknown",
+          auditId: active.matrixId ?? "",
+          matrixId: active.matrixId ?? "",
+          targetSystem: active.targetSystem ?? "",
+          status: active.status,
+          deployedAt: active.deployedAt,
+          startedAt: active.deployedAt,
+          createdAt: active.deployedAt,
+          riskIndex: active.riskIndex,
+          peakRiskScore: active.riskIndex,
+          eventCount: 0,
+          pasteCount: 0,
+          tabSwitchCount: 0,
+          alertTriggered: false,
+        });
+      }
+    }
+  }
+
+  // ── Path B: MongoDB fallback via MCP list_sessions (post-restart) ──
+  // Only reaches out to MCP if in-memory stores are empty.
+  if (allSessions.length === 0) {
+    console.log(
+      `[Guardian Route] [${requestId}] In-memory stores empty, querying MongoDB via MCP list_sessions...`
+    );
+
+    const listRes = await mcpFetch("list_sessions", {}, requestId);
+
+    if (listRes?.ok) {
+      try {
+        const listData = (await listRes.json()) as {
+          success: boolean;
+          data?: Array<Record<string, unknown>>;
+        };
+
+        if (listData.success && Array.isArray(listData.data) && listData.data.length > 0) {
+          // Sort by createdAt / deployedAt descending so newest sessions appear at top
+          const sortedData = [...listData.data].sort((a, b) => {
+            const aTime = String(a["createdAt"] ?? a["deployedAt"] ?? a["updatedAt"] ?? "");
+            const bTime = String(b["createdAt"] ?? b["deployedAt"] ?? b["updatedAt"] ?? "");
+            return new Date(bTime).getTime() - new Date(aTime).getTime();
+          });
+
+          for (const doc of sortedData) {
+            const sid = String(doc["sessionId"] ?? doc["_id"] ?? "");
+            if (!seenIds.has(sid)) {
+              seenIds.add(sid);
+              const employeeId = String(doc["employeeId"] ?? doc["candidateId"] ?? "unknown");
+              const matrixId = String(doc["auditId"] ?? doc["assessmentId"] ?? doc["matrixId"] ?? "");
+              const deployedAt = String(doc["deployedAt"] ?? doc["createdAt"] ?? toISOStringLocal());
+              const rawStatus = String(doc["status"] ?? "active");
+              const status = (
+                ["active", "flagged", "investigating", "cleared"].includes(rawStatus)
+                  ? rawStatus
+                  : "active"
+              ) as ActiveSession["status"];
+              const riskScore = Number(doc["peakRiskScore"] ?? doc["overallRiskScore"] ?? doc["riskIndex"] ?? 0);
+
+              if (!activeSessions.has(sid)) {
+                activeSessions.set(sid, {
+                  sessionId: sid,
+                  employeeId,
+                  matrixId,
+                  targetSystem: "",
+                  status,
+                  deployedAt,
+                  riskIndex: riskScore,
+                });
+              }
+
+              allSessions.push({
+                sessionId: sid,
+                employeeId,
+                auditId: matrixId,
+                matrixId,
+                targetSystem: "",
+                status,
+                deployedAt,
+                startedAt: deployedAt,
+                createdAt: deployedAt,
+                riskIndex: riskScore,
+                peakRiskScore: riskScore,
+                eventCount: Number(doc["eventCount"] ?? 0),
+                pasteCount: Number(doc["pasteCount"] ?? 0),
+                tabSwitchCount: Number(doc["tabSwitchCount"] ?? 0),
+                alertTriggered: riskScore >= 75,
+              });
+            }
+          }
+        }
+      } catch (parseError) {
+        console.error(
+          `[Guardian Route] [${requestId}] Failed to parse MCP list_sessions response:`,
+          parseError instanceof Error ? parseError.message : String(parseError)
+        );
+      }
+    }
+  }
+
+  // ── Sort all sessions by deployedAt descending (newest first) ──
+  allSessions.sort((a, b) => {
+    const aTime = String(a["deployedAt"] ?? a["createdAt"] ?? "");
+    const bTime = String(b["deployedAt"] ?? b["createdAt"] ?? "");
+    return new Date(bTime).getTime() - new Date(aTime).getTime();
+  });
+
   console.log(
-    `[Guardian Route] [${requestId}] GET /sessions - 0 sessions (memory + MongoDB both empty)`
+    `[Guardian Route] [${requestId}] GET /sessions - ${allSessions.length} sessions (sessionStore=${sessionStore.size}, activeSessions=${activeSessions.size})`
   );
-  return c.json({ success: true, data: [] });
+  return c.json({ success: true, data: allSessions });
 });
 
 // ===================================================================
@@ -881,4 +921,4 @@ async function getReferenceCompletions(
   return [];
 }
 
-export { guardianRouter, sessionStore };
+export { guardianRouter, sessionStore, activeSessions };
