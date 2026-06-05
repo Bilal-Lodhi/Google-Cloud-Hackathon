@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -560,7 +561,9 @@ void main() {
             child: Focus(
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent || event is KeyRepeatEvent) {
-                  final isCtrlPressed = Platform.isMacOS
+                  final isCtrlPressed = kIsWeb
+                      ? HardwareKeyboard.instance.isControlPressed
+                      : Platform.isMacOS
                       ? HardwareKeyboard.instance.isMetaPressed
                       : HardwareKeyboard.instance.isControlPressed;
                   if (isCtrlPressed &&
