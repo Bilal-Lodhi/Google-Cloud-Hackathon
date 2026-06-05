@@ -64,23 +64,27 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
         actions: [
-          // Compliance Matrix button
+          // ── Compliance Matrix — primary CTA ──
           Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: TextButton.icon(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: FilledButton.icon(
               onPressed: () => ComplianceSheet.show(context),
-              icon: Icon(
-                Icons.gavel,
-                size: 18,
-                color: theme.colorScheme.primary,
+              icon: const Icon(Icons.gavel, size: 20),
+              label: const Text(
+                'Compliance',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
-              label: Text('Compliance', style: theme.textTheme.labelMedium),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.primary,
-                visualDensity: VisualDensity.compact,
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 2,
               ),
             ),
           ),
+          const SizedBox(width: 8),
           // Operator identity chip
           Padding(
             padding: const EdgeInsets.only(right: 12),
