@@ -18,7 +18,8 @@ class CodeWorkspacePanel extends StatefulWidget {
   State<CodeWorkspacePanel> createState() => _CodeWorkspacePanelState();
 }
 
-class _CodeWorkspacePanelState extends State<CodeWorkspacePanel> {
+class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
+    with WidgetsBindingObserver {
   final TextEditingController _codeController = TextEditingController();
   Timer? _debounceTimer;
   bool _isSending = false;
@@ -31,10 +32,47 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel> {
   static const int _pasteThreshold = 20;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _debounceTimer?.cancel();
     _codeController.dispose();
     super.dispose();
+  }
+
+  // ── WidgetsBindingObserver: detect tab switch / window blur ───────────
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _sendTabSwitchEvent();
+    }
+  }
+
+  Future<void> _sendTabSwitchEvent() async {
+    if (_lastSessionId.isEmpty) return;
+    final review = context.read<ReviewProvider>().selected;
+    if (review == null) return;
+
+    final event = MicroEvent(
+      sessionId: _lastSessionId,
+      employeeId: review.employeeId,
+      auditId: review.auditId,
+      eventType: 'TAB_SWITCH',
+      payload: const MicroEventPayload(windowEvent: 'blur'),
+      timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    try {
+      await context.read<GuardianProvider>().ingestEvents([event]);
+    } catch (_) {
+      // Silently swallow — keep working even if ingest is unavailable.
+    }
   }
 
   // ── Boilerplate snippets keyed by target system ──────────────────────────
@@ -340,6 +378,45 @@ void main() {
               else
                 Icon(Icons.cloud_done, size: 16, color: Colors.greenAccent),
               const SizedBox(width: 8),
+              // DETAILS button — opens risk notification when threats are detected
+              Builder(
+                builder: (context) {
+                  final guardian = context.watch<GuardianProvider>();
+                  final hasRisk =
+                      guardian.latestRiskPayload != null &&
+                      guardian.events.isNotEmpty;
+                  if (hasRisk) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: SizedBox(
+                        height: 30,
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              guardian.openLatestNotification(context),
+                          icon: const Icon(Icons.visibility, size: 14),
+                          label: const Text(
+                            'DETAILS',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 10,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            elevation: 1,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
               IconButton(
                 icon: Icon(
                   _copied ? Icons.check : Icons.copy,
@@ -347,12 +424,41 @@ void main() {
                   color: _copied ? Colors.greenAccent : Colors.white54,
                 ),
                 tooltip: _copied ? 'Copied' : 'Copy',
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: _codeController.text));
+                onPressed: () async {
+                  final copiedText = _codeController.text;
+                  // Capture providers before the async gap
+                  final reviewProvider = context.read<ReviewProvider>();
+                  final guardianProvider = context.read<GuardianProvider>();
+                  final sessionId = _lastSessionId;
+
+                  await Clipboard.setData(ClipboardData(text: copiedText));
                   setState(() => _copied = true);
                   Future.delayed(const Duration(seconds: 2), () {
                     if (mounted) setState(() => _copied = false);
                   });
+
+                  // Send COPY_ATTEMPT telemetry event
+                  if (!mounted || sessionId.isEmpty) return;
+                  final review = reviewProvider.selected;
+                  if (review == null) return;
+
+                  final copyEvent = MicroEvent(
+                    sessionId: sessionId,
+                    employeeId: review.employeeId,
+                    auditId: review.auditId,
+                    eventType: 'COPY_ATTEMPT',
+                    payload: MicroEventPayload(
+                      copyContent: copiedText.length > 200
+                          ? copiedText.substring(0, 200)
+                          : copiedText,
+                    ),
+                    timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
+                  );
+                  try {
+                    await guardianProvider.ingestEvents([copyEvent]);
+                  } catch (_) {
+                    // Silently swallow
+                  }
                 },
                 visualDensity: VisualDensity.compact,
               ),
