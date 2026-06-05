@@ -338,7 +338,10 @@ void main() {
     // prevent duplicate PASTE entries.
     if (_isPasting) {
       _isPasting = false;
-      _sendPasteEvent(_pasteContent, _codeController.text);
+      setState(() => _isSending = true);
+      _sendPasteEvent(_pasteContent, _codeController.text).whenComplete(() {
+        if (mounted) setState(() => _isSending = false);
+      });
       _previousText = _codeController.text;
       return;
     }
@@ -393,7 +396,7 @@ void main() {
   /// Sends a single PASTE event with the full content of what was pasted.
   /// Called immediately when a paste is detected, bypassing the debounce
   /// timer.
-  void _sendPasteEvent(String pastedContent, String fullText) {
+  Future<void> _sendPasteEvent(String pastedContent, String fullText) async {
     if (_lastSessionId.isEmpty) return;
     final review = context.read<ReviewProvider>().selected;
     if (review == null) return;
@@ -413,12 +416,11 @@ void main() {
       ),
       timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
     );
-    // Fire-and-forget — errors are silently swallowed.
-    () async {
-      try {
-        await guardian.ingestEvents([event]);
-      } catch (_) {}
-    }();
+    try {
+      await guardian.ingestEvents([event]);
+    } catch (_) {
+      // Silently swallow errors — terminal keeps working regardless.
+    }
   }
 
   /// Loads boilerplate financial source code when a session becomes active.
