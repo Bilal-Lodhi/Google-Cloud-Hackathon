@@ -54,8 +54,7 @@ class GuardianProvider extends ChangeNotifier {
         .streamAuditEvents(sessionId)
         .listen(
           (payload) {
-            _events.add(payload);
-            notifyListeners();
+            _addEventIfNew(payload);
           },
           onError: (err) {
             _error = 'Guardian stream error: $err';
@@ -77,6 +76,24 @@ class GuardianProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clears all accumulated events, risk score, notification state, and
+  /// pending timers so the right panel switches cleanly to a new session.
+  void resetForNewSession(String sessionId) {
+    _subscription?.cancel();
+    _subscription = null;
+    _isStreaming = false;
+    _events.clear();
+    _latestRiskPayload = null;
+    _notificationDismissed = false;
+    _error = null;
+    // Reset the polling cache so the next poll always emits fresh data
+    // for the new session, regardless of structural similarity.
+    _api.resetPollingCache();
+    notifyListeners();
+    // Start streaming for the newly selected session
+    startStreaming(sessionId);
+  }
+
   /// Submits employee terminal behavioral telemetry events for server-side
   /// analysis. Returns the full ingestion response with anomaly scoring.
   /// Pushes the response's riskPayload into the live events stream and surfaces
@@ -84,14 +101,13 @@ class GuardianProvider extends ChangeNotifier {
   Future<IngestMicroEventResponse> ingestEvents(List<MicroEvent> events) async {
     final result = await _api.ingestMicroEvents(events);
     if (result.riskPayload != null) {
-      _events.add(result.riskPayload!);
+      _addEventIfNew(result.riskPayload!);
 
       // Surface notification only for elevated/critical alerts (score ≥ 45)
       if (result.alertTriggered || result.riskPayload!.overallRiskScore >= 45) {
         _latestRiskPayload = result.riskPayload;
         _notificationDismissed = false;
       }
-      notifyListeners();
     }
     return result;
   }
@@ -129,6 +145,48 @@ class GuardianProvider extends ChangeNotifier {
       matrixId: matrixId,
       targetSystem: targetSystem,
     );
+  }
+
+  // ── Event deduplication ─────────────────────────────────────────────────────
+  /// Adds [newEvent] to [_events] only if it is not a duplicate of the
+  /// most recently added event. Duplicates are identified by matching
+  /// [riskAssessmentId] (UUID v4), or — as a fallback — by comparing
+  /// [generatedAt], [overallRiskScore], and flag identities.
+  void _addEventIfNew(RiskAssessmentPayload newEvent) {
+    if (_events.isEmpty) {
+      _events.add(newEvent);
+      notifyListeners();
+      return;
+    }
+
+    final lastEvent = _events.last;
+
+    // Primary dedup key: unique risk assessment ID (UUID v4).
+    if (lastEvent.riskAssessmentId.isNotEmpty &&
+        newEvent.riskAssessmentId.isNotEmpty &&
+        lastEvent.riskAssessmentId == newEvent.riskAssessmentId) {
+      return; // identical payload — skip
+    }
+
+    // Fallback: compare timestamp, score, and flags.
+    final bool isDuplicate =
+        lastEvent.generatedAt == newEvent.generatedAt &&
+        lastEvent.overallRiskScore == newEvent.overallRiskScore &&
+        _areFlagsEqual(lastEvent.flags, newEvent.flags);
+
+    if (!isDuplicate) {
+      _events.add(newEvent);
+      notifyListeners();
+    }
+  }
+
+  /// Returns true when both flag lists have the same set of flag IDs
+  /// and categories (order-independent).
+  bool _areFlagsEqual(List<AnomalyFlag> a, List<AnomalyFlag> b) {
+    if (a.length != b.length) return false;
+    final aKeys = a.map((f) => '${f.flagId}|${f.category}').toSet();
+    final bKeys = b.map((f) => '${f.flagId}|${f.category}').toSet();
+    return aKeys.containsAll(bKeys) && bKeys.containsAll(aKeys);
   }
 
   @override

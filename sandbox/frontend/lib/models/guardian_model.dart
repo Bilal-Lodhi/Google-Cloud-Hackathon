@@ -305,7 +305,10 @@ class MicroEventPayload {
   final String? diffPatch;
   final String? copyContent;
   final int? copiedLength;
+  final String? copiedTextPreview;
+  final int? selectedTextLength;
   final String? windowEvent;
+  final String? visibilityState;
   final String? newText;
   final int? changeLength;
 
@@ -315,7 +318,10 @@ class MicroEventPayload {
     this.diffPatch,
     this.copyContent,
     this.copiedLength,
+    this.copiedTextPreview,
+    this.selectedTextLength,
     this.windowEvent,
+    this.visibilityState,
     this.newText,
     this.changeLength,
   });
@@ -326,7 +332,11 @@ class MicroEventPayload {
       pasteContent: json['pasteContent'] as String?,
       diffPatch: json['diffPatch'] as String?,
       copyContent: json['copyContent'] as String?,
+      copiedLength: json['copiedLength'] as int?,
+      copiedTextPreview: json['copiedTextPreview'] as String?,
+      selectedTextLength: json['selectedTextLength'] as int?,
       windowEvent: json['windowEvent'] as String?,
+      visibilityState: json['visibilityState'] as String?,
       newText: json['newText'] as String?,
       changeLength: json['changeLength'] as int?,
     );
@@ -337,7 +347,11 @@ class MicroEventPayload {
     if (pasteContent != null) 'pasteContent': pasteContent,
     if (diffPatch != null) 'diffPatch': diffPatch,
     if (copyContent != null) 'copyContent': copyContent,
+    if (copiedLength != null) 'copiedLength': copiedLength,
+    if (copiedTextPreview != null) 'copiedTextPreview': copiedTextPreview,
+    if (selectedTextLength != null) 'selectedTextLength': selectedTextLength,
     if (windowEvent != null) 'windowEvent': windowEvent,
+    if (visibilityState != null) 'visibilityState': visibilityState,
     if (newText != null) 'newText': newText,
     if (changeLength != null) 'changeLength': changeLength,
   };

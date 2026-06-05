@@ -1,6 +1,7 @@
+// ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
+
 import 'dart:async';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -33,6 +34,17 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
   // Must match backend's hasLargePaste check (≥100 chars) conceptually, but
   // we classify smaller batch edits as PASTE too for accurate paste tracking.
   static const int _pasteThreshold = 20;
+
+  /// Flag set when a paste is detected so the next debounced text change
+  /// does NOT fire a duplicate PASTE event. The paste handler sends its own
+  /// dedicated event immediately and skips one debounce cycle.
+  bool _isPasting = false;
+
+  /// Captures the start of pasted content for accurate event payload.
+  String _pasteContent = '';
+
+  /// Tracks the text length at the last time the paste flag was armed.
+  int _lastKnownTextLength = 0;
 
   @override
   void initState() {
@@ -120,6 +132,10 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
             ? textToCopy.substring(0, previewLength)
             : textToCopy,
         copiedLength: textToCopy.length,
+        copiedTextPreview: textToCopy.length > 100
+            ? '${textToCopy.substring(0, 100)}...'
+            : textToCopy,
+        selectedTextLength: selectedText.length,
       ),
       timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
     );
@@ -144,12 +160,24 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
     final review = context.read<ReviewProvider>().selected;
     if (review == null) return;
 
+    // Query actual browser document visibility state.
+    // Falls back to 'unknown' when html.document is unavailable.
+    String visibilityState;
+    try {
+      visibilityState = html.document.visibilityState;
+    } catch (_) {
+      visibilityState = 'unknown';
+    }
+
     final event = MicroEvent(
       sessionId: _lastSessionId,
       employeeId: review.employeeId,
       auditId: review.auditId,
       eventType: 'TAB_SWITCH',
-      payload: const MicroEventPayload(windowEvent: 'blur'),
+      payload: MicroEventPayload(
+        windowEvent: 'blur',
+        visibilityState: visibilityState,
+      ),
       timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
     );
 
@@ -304,6 +332,17 @@ void main() {
   /// length so the server-side risk engine can score behavioral shifts.
   void _onCodeChanged() {
     _debounceTimer?.cancel();
+
+    // If a paste just happened, send the PASTE event immediately from
+    // the captured paste content and skip the next debounce cycle to
+    // prevent duplicate PASTE entries.
+    if (_isPasting) {
+      _isPasting = false;
+      _sendPasteEvent(_pasteContent, _codeController.text);
+      _previousText = _codeController.text;
+      return;
+    }
+
     _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       if (_isSending || _lastSessionId.isEmpty) return;
 
@@ -351,6 +390,37 @@ void main() {
     });
   }
 
+  /// Sends a single PASTE event with the full content of what was pasted.
+  /// Called immediately when a paste is detected, bypassing the debounce
+  /// timer.
+  void _sendPasteEvent(String pastedContent, String fullText) {
+    if (_lastSessionId.isEmpty) return;
+    final review = context.read<ReviewProvider>().selected;
+    if (review == null) return;
+    final guardian = context.read<GuardianProvider>();
+
+    final event = MicroEvent(
+      sessionId: _lastSessionId,
+      employeeId: review.employeeId,
+      auditId: review.auditId,
+      eventType: 'PASTE',
+      payload: MicroEventPayload(
+        newText: fullText,
+        changeLength: pastedContent.length,
+        pasteContent: pastedContent.length > 200
+            ? '${pastedContent.substring(0, 200)}...'
+            : pastedContent,
+      ),
+      timestampEpochMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    // Fire-and-forget — errors are silently swallowed.
+    () async {
+      try {
+        await guardian.ingestEvents([event]);
+      } catch (_) {}
+    }();
+  }
+
   /// Loads boilerplate financial source code when a session becomes active.
   void _loadSessionCode() {
     final review = context.read<ReviewProvider>().selected;
@@ -368,6 +438,7 @@ void main() {
     }
     // Seed previous text so the first edit computes an accurate changeLength
     _previousText = _codeController.text;
+    _lastKnownTextLength = _codeController.text.length;
   }
 
   @override
@@ -561,15 +632,21 @@ void main() {
             child: Focus(
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent || event is KeyRepeatEvent) {
-                  final isCtrlPressed = kIsWeb
-                      ? HardwareKeyboard.instance.isControlPressed
-                      : Platform.isMacOS
-                      ? HardwareKeyboard.instance.isMetaPressed
-                      : HardwareKeyboard.instance.isControlPressed;
+                  final isCtrlPressed =
+                      HardwareKeyboard.instance.isControlPressed;
                   if (isCtrlPressed &&
                       event.logicalKey == LogicalKeyboardKey.keyC) {
                     _handleCopy();
                     return KeyEventResult.handled;
+                  }
+                  // Detect paste via Ctrl+V / Cmd+V
+                  if (isCtrlPressed &&
+                      event.logicalKey == LogicalKeyboardKey.keyV) {
+                    // Arm the paste flag: the next onChanged will see
+                    // _isPasting == true and record the pasted block.
+                    _isPasting = true;
+                    _lastKnownTextLength = _codeController.text.length;
+                    return KeyEventResult.ignored; // let system handle paste
                   }
                 }
                 return KeyEventResult.ignored;
@@ -577,7 +654,25 @@ void main() {
               child: TextField(
                 focusNode: _codeFocusNode,
                 controller: _codeController,
-                onChanged: (_) => _onCodeChanged(),
+                onChanged: (value) {
+                  // When _isPasting is armed (Ctrl+V detected), capture the
+                  // pasted content delta and then let _onCodeChanged send the
+                  // event immediately.
+                  if (_isPasting) {
+                    final newLength = value.length;
+                    final insertedLen = newLength - _lastKnownTextLength;
+                    if (insertedLen > 0) {
+                      _pasteContent = value.substring(
+                        _lastKnownTextLength,
+                        newLength,
+                      );
+                    } else {
+                      _pasteContent = '';
+                    }
+                    _lastKnownTextLength = newLength;
+                  }
+                  _onCodeChanged();
+                },
                 maxLines: null,
                 expands: true,
                 textAlignVertical: TextAlignVertical.top,

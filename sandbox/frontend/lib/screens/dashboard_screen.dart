@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/health_provider.dart';
 import '../providers/identity_provider.dart';
 import '../providers/review_provider.dart';
+import '../providers/guardian_provider.dart';
 import '../models/guardian_model.dart';
 import '../widgets/generate_panel.dart';
 import '../widgets/security_metrics_panel.dart';
@@ -525,6 +526,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         maxLines: 2,
       ),
       onTap: () {
+        // Reset guardian provider state so the right panel clears
+        // and loads the new session's timeline from scratch.
+        context.read<GuardianProvider>().resetForNewSession(session.sessionId);
         review.selectSession(session.sessionId);
         Navigator.pop(context);
       },

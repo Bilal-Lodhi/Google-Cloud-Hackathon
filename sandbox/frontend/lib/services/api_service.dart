@@ -45,6 +45,11 @@ class ApiService {
   /// identity is set. Null = anonymous/no identity.
   String? sessionToken;
 
+  /// Caches the last risk payload yielded from the polling fallback so
+  /// that duplicate yields are suppressed when the backend payload has
+  /// not changed between poll intervals.
+  RiskAssessmentPayload? _lastPolledRiskPayload;
+
   ApiService({required this.baseUrl}) : _client = http.Client();
 
   /// Returns headers common to all API calls, including the session
@@ -218,8 +223,10 @@ class ApiService {
     while (true) {
       try {
         final review = await fetchAuditRecord(sessionId);
-        if (review.lastRiskPayload != null) {
-          yield review.lastRiskPayload!;
+        final payload = review.lastRiskPayload;
+        if (payload != null && _isNewPolledPayload(payload)) {
+          _lastPolledRiskPayload = payload;
+          yield payload;
         }
       } catch (_) {
         // Silently swallow polling errors to keep the stream alive
@@ -570,6 +577,41 @@ class ApiService {
         'Failed to terminate session: ${res.body}',
       );
     }
+  }
+
+  /// Returns true when [payload] differs from [_lastPolledRiskPayload] by
+  /// value (not reference), using the UUID [riskAssessmentId] as the
+  /// primary identity key.  Falls back to comparing [generatedAt],
+  /// [overallRiskScore], and flag sets when UUIDs are empty.
+  bool _isNewPolledPayload(RiskAssessmentPayload payload) {
+    final last = _lastPolledRiskPayload;
+    if (last == null) return true;
+
+    // Primary: unique risk assessment ID (UUID v4).
+    if (last.riskAssessmentId.isNotEmpty &&
+        payload.riskAssessmentId.isNotEmpty) {
+      return last.riskAssessmentId != payload.riskAssessmentId;
+    }
+
+    // Fallback: structural equality on the stable signal fields.
+    if (last.generatedAt != payload.generatedAt) return true;
+    if (last.overallRiskScore != payload.overallRiskScore) return true;
+
+    final lastKeys = last.flags.map((f) => '${f.flagId}|${f.category}').toSet();
+    final newKeys = payload.flags
+        .map((f) => '${f.flagId}|${f.category}')
+        .toSet();
+    if (lastKeys.length != newKeys.length) return true;
+    if (!lastKeys.containsAll(newKeys)) return true;
+
+    return false; // structurally identical → suppress
+  }
+
+  /// Resets the polling fallback cache so that the next poll always yields
+  /// fresh data for a new session, even if the payload happens to be
+  /// structurally identical to the previous session's last payload.
+  void resetPollingCache() {
+    _lastPolledRiskPayload = null;
   }
 
   void dispose() {
