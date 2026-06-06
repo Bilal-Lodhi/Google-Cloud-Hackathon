@@ -23,6 +23,7 @@ import type { IngestMicroEventRequest, IngestMicroEventResponse, MicroEvent, Ris
 import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
 import { toISOStringLocal, formatLocalTime } from "../utils/time.js";
+import * as crypto from "node:crypto";
 
 const guardianRouter = new Hono();
 const config = loadConfig();
@@ -63,6 +64,12 @@ interface SessionState {
   lastRiskPayload: RiskAssessmentPayload | null;
   eventCount: number;
   status: string;
+  /** SHA-256 of currentCode at the time of the last Gemini analysis.
+   *  Used to skip re-analysis when identical code is ingested repeatedly. */
+  lastAnalyzedCodeHash: string;
+  /** Fingerprints of the last N micro-events to suppress true duplicates
+   *  that arrive in rapid succession (same eventType + payload digest). */
+  recentEventFingerprints: Set<string>;
 }
 
 const sessionStore = new Map<string, SessionState>();
@@ -173,6 +180,32 @@ guardianRouter.post("/ingest", async (c) => {
     );
 
     if (shouldAnalyze && session.currentCode.length > 50) {
+      // ── Code-hash dedup: skip Gemini when code hasn't changed ──
+      const codeHash = crypto
+        .createHash("sha256")
+        .update(session.currentCode, "utf-8")
+        .digest("hex");
+      if (codeHash === session.lastAnalyzedCodeHash) {
+        console.log(
+          `[Guardian Route] [${requestId}] Skipping Gemini — code unchanged (hash=${codeHash.slice(0, 12)})`
+        );
+        // Re-emit the last payload so the frontend doesn't go blank
+        const lastPayload = session.lastRiskPayload;
+        const response: IngestMicroEventResponse = {
+          success: true,
+          processedCount,
+          riskPayload: lastPayload,
+          alertTriggered: (lastPayload?.overallRiskScore ?? 0) > 50,
+          anomalyRiskIndex: lastPayload?.overallRiskScore ?? 0,
+        };
+        console.log(
+          `[Guardian Route] [${requestId}] COMPLETE (cached) - processedCount=${processedCount} ` +
+            `alertTriggered=${(lastPayload?.overallRiskScore ?? 0) > 50} score=${lastPayload?.overallRiskScore ?? "N/A"}`
+        );
+        return c.json(response, 200);
+      }
+      session.lastAnalyzedCodeHash = codeHash;
+
       const keystrokeMetrics = computeKeystrokeMetrics(session.keystrokeDeltas);
       // Collect paste content from both legacy PASTE_TRIGGER and new PASTE events
       const pasteContents = session.events
@@ -843,10 +876,10 @@ async function updateMongoSessionCounts(
 // ===================================================================
 
 function processEvent(event: MicroEvent): void {
-  let session = sessionStore.get(event.sessionId);
+  const existing = sessionStore.get(event.sessionId);
 
-  if (!session) {
-    session = {
+  if (!existing) {
+    const newSession: SessionState = {
       sessionId: event.sessionId,
       employeeId: event.employeeId,
       auditId: event.auditId,
@@ -860,12 +893,53 @@ function processEvent(event: MicroEvent): void {
       lastRiskPayload: null,
       eventCount: 0,
       status: "active",
+      lastAnalyzedCodeHash: "",
+      recentEventFingerprints: new Set(),
     };
-    sessionStore.set(event.sessionId, session);
+    sessionStore.set(event.sessionId, newSession);
+    applyEventToSession(newSession, event);
+    return;
   }
 
-  const sess = session;
+  // ── Micro-event fingerprint dedup ──
+  // Identical events (same eventType + serialised payload) arriving within
+  // the same second are skipped. This prevents the Flutter client from
+  // re-ingesting the same batch when polling loops overlap.
+  const fp = computeEventFingerprint(event);
+  if (existing.recentEventFingerprints.has(fp)) {
+    return; // duplicate — skip
+  }
+  applyEventToSession(existing, event);
+  existing.recentEventFingerprints.add(fp);
 
+  // Keep only the last 128 fingerprints
+  if (existing.recentEventFingerprints.size > 128) {
+    const entries = [...existing.recentEventFingerprints];
+    existing.recentEventFingerprints = new Set(entries.slice(-128));
+  }
+
+  sessionStore.set(event.sessionId, existing);
+}
+
+/** Compute a short dedup fingerprint for a micro-event. */
+function computeEventFingerprint(event: MicroEvent): string {
+  const slim: Record<string, unknown> = {
+    t: event.eventType,
+    p: String(event.payload?.pasteContent ?? event.payload?.newText ?? event.payload?.diffPatch ?? "").slice(0, 512),
+  };
+  // Include changeLength if present (PASTE events)
+  if (event.payload?.changeLength !== undefined) {
+    slim["cl"] = event.payload.changeLength;
+  }
+  // Include deltaMs if present (KEYSTROKE events)
+  if (event.payload?.deltaMs !== undefined) {
+    slim["dm"] = Math.round(event.payload.deltaMs / 10) * 10; // bucket to 10ms
+  }
+  return JSON.stringify(slim);
+}
+
+/** Mutate session in-place for a single micro-event. */
+function applyEventToSession(sess: SessionState, event: MicroEvent): void {
   sess.events.push(event);
 
   switch (event.eventType) {
@@ -915,8 +989,6 @@ function processEvent(event: MicroEvent): void {
       }
       break;
   }
-
-  sessionStore.set(event.sessionId, sess);
 }
 
 function hasAnomalousKeystrokes(deltas: number[]): boolean {
