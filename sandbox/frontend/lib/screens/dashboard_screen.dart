@@ -86,6 +86,36 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
           const SizedBox(width: 8),
+          // Logout / Switch Account button
+          IconButton(
+            icon: const Icon(Icons.logout, size: 20),
+            tooltip: 'Logout / Switch Account',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Switch Account'),
+                  content: const Text(
+                    'Clear your current identity and return to the login screen? Your session will be ended.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        context.read<IdentityProvider>().clearIdentity();
+                      },
+                      child: const Text('Logout'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            visualDensity: VisualDensity.compact,
+          ),
           // Operator identity chip
           Padding(
             padding: const EdgeInsets.only(right: 12),
