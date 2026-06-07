@@ -45,7 +45,7 @@ const app = new Hono();
 
 app.use("*", cors({
   origin: "*",
-  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
   allowHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Generation-Request-Id", "X-Session-Token"],
   exposeHeaders: ["X-Correlation-Id", "X-RateLimit-Remaining"],
   maxAge: 86400,

@@ -521,47 +521,130 @@ class _DashboardScreenState extends State<DashboardScreen>
     final statusText = hasEvents
         ? (session.alertTriggered ? '⚠ ALERT' : 'active')
         : 'inactive';
-    return ListTile(
-      selected: isSelected,
-      selectedTileColor: theme.colorScheme.primaryContainer.withValues(
-        alpha: 0.4,
-      ),
+
+    // ── Build content area (tappable) and trailing delete button ────────────
+    // Uses a Card + InkWell + Row instead of ListTile to avoid Flutter's
+    // gesture conflict where ListTile.onTap intercepts taps meant for the
+    // trailing IconButton. See: flutter/flutter#15427, #21383.
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: isSelected
+          ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4)
+          : Colors.transparent,
       shape: isSelected
           ? Border(left: BorderSide(color: theme.colorScheme.primary, width: 3))
-          : null,
-      leading: hasEvents
-          ? CircleAvatar(
-              backgroundColor: _riskScoreColor(score, theme),
-              radius: 14,
-              child: Text(
-                score.toStringAsFixed(0),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
+          : const Border(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            // ── Tappable content area (InkWell only wraps this part) ──
+            Expanded(
+              child: InkWell(
+                onTap: () {
+                  // Reset guardian provider state so the right panel clears
+                  // and loads the new session's timeline from scratch.
+                  context.read<GuardianProvider>().resetForNewSession(
+                    session.sessionId,
+                  );
+                  review.selectSession(session.sessionId);
+                  Navigator.pop(context);
+                },
+                child: Row(
+                  children: [
+                    // ── Leading avatar / icon ──
+                    if (hasEvents)
+                      CircleAvatar(
+                        backgroundColor: _riskScoreColor(score, theme),
+                        radius: 14,
+                        child: Text(
+                          score.toStringAsFixed(0),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    else
+                      Icon(
+                        Icons.schedule,
+                        size: 28,
+                        color: theme.colorScheme.outline,
+                      ),
+                    const SizedBox(width: 16),
+                    // ── Title + subtitle ──
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            session.employeeId,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
+                            style: theme.textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            )
-          : Icon(Icons.schedule, size: 28, color: theme.colorScheme.outline),
-      title: Text(
-        session.employeeId,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
+            ),
+            const SizedBox(width: 8),
+            // ── Delete button OUTSIDE InkWell — independent gesture zone ──
+            IconButton(
+              icon: Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: theme.colorScheme.error.withValues(alpha: 0.7),
+              ),
+              tooltip: 'Delete session',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Terminate Session'),
+                    content: Text(
+                      'Permanently delete audit session for '
+                      '${session.employeeId}?\n\n'
+                      'Session ID: ${session.sessionId}',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          review.terminateSession(session.sessionId);
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: theme.colorScheme.error,
+                        ),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ],
         ),
       ),
-      subtitle: Text(
-        '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
-        style: theme.textTheme.bodySmall,
-        overflow: TextOverflow.ellipsis,
-        maxLines: 2,
-      ),
-      onTap: () {
-        // Reset guardian provider state so the right panel clears
-        // and loads the new session's timeline from scratch.
-        context.read<GuardianProvider>().resetForNewSession(session.sessionId);
-        review.selectSession(session.sessionId);
-        Navigator.pop(context);
-      },
     );
   }
 }

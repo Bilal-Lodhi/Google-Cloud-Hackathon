@@ -1029,51 +1029,43 @@ async function getReferenceCompletions(
 }
 
 // --- DELETE /api/v1/guardian/sessions/:sessionId --------------------------
-// Kills a live session: removes it from the active-sessions registry so the
-// drawer moves it into the "NEW / INACTIVE" section, resets event counters to
-// zero, and marks the session as "terminated" in both the in-memory store and
-// MongoDB (via MCP).
+// Permanently deletes a session from all layers:
+//   1. In-memory active-sessions registry
+//   2. In-memory sessionStore
+//   3. MongoDB (session doc + all associated micro-events + suspicion reports)
+// The session is completely gone — won't appear in the drawer or review endpoint.
 
 guardianRouter.delete("/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
   const requestId = crypto.randomUUID();
   console.log(`[Guardian Route] [${requestId}] Incoming DELETE /api/v1/guardian/sessions/${sessionId}`);
 
-  // ── 1. Remove from active-sessions in-memory registry ──
-  //    This causes the drawer to re-categorize the session as "inactive".
-  let killed = false;
+  // ── 1. Remove from in-memory registries ──
+  let deleted = false;
   if (activeSessions.has(sessionId)) {
     activeSessions.delete(sessionId);
-    killed = true;
+    deleted = true;
+  }
+  if (sessionStore.has(sessionId)) {
+    sessionStore.delete(sessionId);
+    deleted = true;
   }
 
-  // ── 2. Reset the persisted session-store entry ──
-  //    eventCount → 0  so it appears under "NEW / INACTIVE" in the drawer.
-  //    status     → "terminated" so the UI can show appropriate styling.
-  const stored = sessionStore.get(sessionId);
-  if (stored) {
-    stored.eventCount = 0;
-    stored.pasteCount = 0;
-    stored.tabSwitchCount = 0;
-    stored.copyAttemptCount = 0;
-    stored.status = "terminated";
-    killed = true;
+  // ── 2. Delete from MongoDB via MCP (session + associated docs) ──
+  try {
+    await mcpFetch("delete_session", { sessionId }, requestId);
+    deleted = true;
+    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' deleted from MongoDB (MCP)`);
+  } catch (_) {
+    console.warn(`[Guardian Route] [${requestId}] MCP delete_session failed for '${sessionId}' — in-memory deletion proceeded`);
   }
 
-  if (!killed) {
+  if (!deleted) {
     return c.json({ success: false, error: `Session '${sessionId}' not found` }, 404);
   }
 
-  // ── 3. Notify MongoDB / MCP that the session is now terminated ──
-  try {
-    await mcpFetch("terminate_session", { sessionId }, requestId);
-    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' terminated (MCP notified)`);
-  } catch (_) {
-    console.warn(`[Guardian Route] [${requestId}] MCP terminate_session failed for '${sessionId}' (non-fatal)`);
-  }
-
-  console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' killed → moved to inactive`);
-  return c.json({ success: true, sessionId, message: "Session killed — moved to inactive" });
+  console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' permanently deleted`);
+  return c.json({ success: true, sessionId, message: "Session permanently deleted" });
 });
 
 export { guardianRouter, sessionStore, activeSessions };

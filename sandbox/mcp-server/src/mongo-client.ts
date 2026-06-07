@@ -128,6 +128,17 @@ export class MongoStore {
     );
   }
 
+  async deleteSession(sessionId: string): Promise<boolean> {
+    // Delete the session document and all associated data
+    const sessionResult = await this.collection("sessions").deleteOne({ sessionId });
+    // Also clean up associated micro-events and suspicion reports
+    await Promise.all([
+      this.collection("microEvents").deleteMany({ sessionId }),
+      this.collection("suspicionReports").deleteMany({ sessionId }),
+    ]);
+    return sessionResult.deletedCount > 0;
+  }
+
   async listSessions(): Promise<Document[]> {
     return this.collection("sessions")
       .find(

@@ -51,6 +51,13 @@ const tools: Record<string, ToolHandler> = {
     return { success: true };
   },
 
+  delete_session: async (body) => {
+    const sessionId = body["sessionId"] as string;
+    if (!sessionId) throw new Error("Missing required parameter: sessionId");
+    const deleted = await store.deleteSession(sessionId);
+    return { success: true, deleted };
+  },
+
   append_micro_event: async (body) => {
     const event = body["event"];
     if (!event) throw new Error("Missing required parameter: event");

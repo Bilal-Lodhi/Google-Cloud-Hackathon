@@ -65,4 +65,20 @@ class ReviewProvider extends ChangeNotifier {
     _selected = null;
     notifyListeners();
   }
+
+  Future<void> terminateSession(String sessionId) async {
+    try {
+      await _api.terminateSession(sessionId);
+    } on ApiException catch (_) {
+      // Even if the backend call fails, remove from local list and refresh
+    } finally {
+      _sessions.removeWhere((s) => s.sessionId == sessionId);
+      if (_selected?.sessionId == sessionId) {
+        _selected = null;
+      }
+      notifyListeners();
+      // Refresh from backend to stay in sync
+      loadSessions();
+    }
+  }
 }

@@ -110,6 +110,18 @@ const TOOLS = {
     },
   },
 
+  DELETE_SESSION: {
+    name: "delete_session",
+    description: "Permanently delete a session and all its associated micro-events and suspicion reports from MongoDB.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "The session ID to delete" },
+      },
+      required: ["sessionId"],
+    },
+  },
+
   INGEST_MICRO_EVENTS: {
     name: "ingest_micro_events",
     description:
@@ -217,6 +229,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         const docId = await store.createSession(sessionObj);
         return {
           content: [{ type: "text", text: JSON.stringify({ success: true, mongoDocumentId: docId, correlationId: crypto.randomUUID() }) }],
+        };
+      }
+
+      case "delete_session": {
+        const deleteObj = args as Record<string, unknown>;
+        const sessionId = deleteObj["sessionId"] as string;
+        if (!sessionId) throw new Error("Missing required parameter: sessionId");
+        const deleted = await store.deleteSession(sessionId);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: true, deleted, correlationId: crypto.randomUUID() }) }],
         };
       }
 
