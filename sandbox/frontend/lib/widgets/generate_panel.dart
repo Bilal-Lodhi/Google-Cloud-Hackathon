@@ -329,6 +329,131 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
     'other-finsys': Icons.cloud,
   };
 
+  /// Short suggestion chips shown below the audit prompt when a target
+  /// system is selected.  Tapping a chip pastes its label into the prompt.
+  static const _targetSystemSuggestions = <String, List<String>>{
+    'core-trading-ledger': [
+      'Unauthorized trade entries',
+      'Position manipulation',
+      'SOX compliance gaps',
+      'PnL adjustment anomalies',
+    ],
+    'swift-gateway': [
+      'Wire transfer anomalies',
+      'Sanctions screening bypasses',
+      'MT/MX message tampering',
+      'OFAC compliance gaps',
+    ],
+    'hft-desk': [
+      'Quote-stuffing patterns',
+      'Layering / spoofing',
+      'Latency arbitrage abuse',
+      'Kill-switch failures',
+    ],
+    'aml-compliance': [
+      'SAR backlogs',
+      'Threshold tuning gaps',
+      'CTR aggregation failures',
+      'Smurfing detection bypasses',
+    ],
+    'fedwire-gateway': [
+      'Large-value transfer anomalies',
+      'Duplicate payment attempts',
+      'Daylight overdraft breaches',
+      'OFAC settlement gaps',
+    ],
+    'ach-processor': [
+      'Unauthorized batch edits',
+      'Payroll fraud patterns',
+      'NACHA rule violations',
+      'Account takeover indicators',
+    ],
+    'treasury-mgmt': [
+      'Liquidity reporting gaps',
+      'Intercompany loan irregularities',
+      'Interest-rate risk mispricing',
+      'Hedge accounting breaches',
+    ],
+    'kyc-onboarding': [
+      'CDD / EDD bypasses',
+      'Document forgery',
+      'Beneficial ownership gaps',
+      'FinCEN disclosure failures',
+    ],
+    'fraud-detection': [
+      'Model drift',
+      'False-positive spikes',
+      'Synthetic identity clusters',
+      'Missed anomaly scoring',
+    ],
+    'regulatory-reporting': [
+      'Filing timeliness violations',
+      'Data completeness gaps',
+      'CAT / TRACE errors',
+      'Cross-jurisdiction inaccuracies',
+    ],
+    'digital-banking': [
+      'Session hijacking',
+      'Credential stuffing',
+      'Unauthorized fund transfers',
+      'Mobile channel exploits',
+    ],
+    'card-issuance': [
+      'BIN attacks',
+      'Velocity-check bypasses',
+      'PCI-DSS violations',
+      'Cardholder data exposure',
+    ],
+    'market-data-feed': [
+      'Data-integrity tampering',
+      'Quote-delay injection',
+      'Unauthorized redistribution',
+      'Proprietary data leaks',
+    ],
+    'risk-management': [
+      'VaR model tampering',
+      'Stress-test manipulation',
+      'Limit-breach overrides',
+      'Basel III/IV non-compliance',
+    ],
+    'clearing-settlement': [
+      'DvP failures',
+      'Collateral shortfalls',
+      'CCP margin call gaps',
+      'Settlement timing breaches',
+    ],
+    'wealth-management': [
+      'Discretionary trade violations',
+      'Suitability rule breaches',
+      'Unauthorized rebalancing',
+      'Reg BI non-compliance',
+    ],
+    'insurance-underwriting': [
+      'Premium leakage',
+      'Policy-lapsing anomalies',
+      'Reinsurance treaty gaps',
+      'Solvency II violations',
+    ],
+    'crypto-custody': [
+      'Key-ceremony bypasses',
+      'Hot-wallet drain patterns',
+      'Travel-rule gaps',
+      'Multi-sig misconfiguration',
+    ],
+    'comms-surveillance': [
+      'Insider-trading lexicon hits',
+      'Channel-hopping detection',
+      'E-comm retention gaps',
+      'SEC Rule 17a-4 violations',
+    ],
+    'other-finsys': [
+      'Privilege escalation',
+      'Data exfiltration',
+      'Unauthorized API access',
+      'Cloud sync bypasses',
+    ],
+  };
+
   @override
   void dispose() {
     _promptController.dispose();
@@ -706,7 +831,7 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
             _buildSheetLabel(theme, 'Target System', Icons.dns_outlined),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _selectedTargetSystem.isNotEmpty
+              initialValue: _selectedTargetSystem.isNotEmpty
                   ? _selectedTargetSystem
                   : null,
               hint: const Text('Select target system...'),
@@ -921,6 +1046,12 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
                 ),
               ),
             ),
+            if (_selectedTargetSystem.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildSheetLabel(theme, 'Suggestions', Icons.lightbulb_outline),
+              const SizedBox(height: 8),
+              ..._buildSuggestionChips(theme, setSheetState),
+            ],
             const SizedBox(height: 24),
             Row(
               children: [
@@ -1946,6 +2077,46 @@ class _ComplianceSheetContentState extends State<_ComplianceSheetContent> {
           ),
       ],
     );
+  }
+
+  List<Widget> _buildSuggestionChips(
+    ThemeData theme,
+    StateSetter setSheetState,
+  ) {
+    final suggestions = _targetSystemSuggestions[_selectedTargetSystem];
+    if (suggestions == null || suggestions.isEmpty) return [];
+
+    return [
+      Center(
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: suggestions.map((suggestion) {
+            return ActionChip(
+              avatar: const Icon(Icons.lightbulb_outline, size: 14),
+              label: Text(
+                suggestion,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+              backgroundColor: theme.colorScheme.primaryContainer,
+              side: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
+              ),
+              onPressed: () {
+                _promptController.text = suggestion;
+                if (_promptError != null) {
+                  _promptError = null;
+                }
+                setSheetState(() {});
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    ];
   }
 
   Widget _buildSheetRiskSlider(
