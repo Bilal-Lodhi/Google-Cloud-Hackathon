@@ -45,7 +45,7 @@ TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
 - [Defensive JSON Parsing Pipeline](#-defensive-json-parsing-pipeline)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
 - [Session Drawer -- Categorization & Refresh](#-session-drawer--categorization--refresh)
-- [Close & Kill Session Controls](#-close--kill-session-controls)
+- [Close, Kill & Delete Session Controls](#close-kill--delete-session-controls)
 - [Event Deduplication Pipeline](#-event-deduplication-pipeline)
 - [Code Workspace Telemetry — Copy, Paste & Tab Detection](#-code-workspace-telemetry--copy-paste--tab-detection)
 - [Generate Panel UX Enhancements](#-generate-panel-ux-enhancements)
@@ -679,7 +679,7 @@ descending so the newest deployments appear first.
 
 ---
 
-## ❌ Close & Kill Session Controls
+## 🛑 Close, Kill & Delete Session Controls
 
 The code workspace panel (`code_workspace_panel.dart`) now exposes two
 session control buttons in the header toolbar:
@@ -687,11 +687,13 @@ session control buttons in the header toolbar:
 - **Close (X icon)**: Stops streaming, clears the editor and session
   selection, but keeps the session active on the backend. Events can
   still be ingested.
-- **Kill (stop icon, red)**: Stops streaming, clears the editor and
+- **Delete (stop icon, red)**: Stops streaming, clears the editor and
   session selection, AND sends a `DELETE` request to
-  `DELETE /api/v1/guardian/sessions/:id` to terminate the session on
-  the backend, removing it from in-memory registries and marking it as
-  terminated in MongoDB Atlas.
+  `DELETE /api/v1/guardian/sessions/:id`. This **permanently deletes**
+  the session from all layers — in-memory registries, session store,
+  **and** MongoDB Atlas (including all associated micro-events and
+  suspicion reports). The session is completely gone and will not
+  appear in the drawer or review endpoints.
 
 The `GuardianProvider.terminateSession()` method and
 `ApiService.terminateSession()` HTTP client method support this flow.
@@ -905,7 +907,7 @@ with Atlas connection pooling.
 | `get_employee_report` | AGGREGATE | Aggregate suspicion reports for an employee |
 | `list_sessions` | FIND | List all sessions (supports drawer population) |
 | `health_check` | PING | MongoDB connectivity test |
-| `terminate_session` | UPDATE | Mark session as terminated in MongoDB Atlas |
+| `delete_session` | DELETE | Permanently delete session + all associated micro-events and suspicion reports from MongoDB Atlas |
 
 All operations use the MongoDB Node.js native driver with Atlas connection pooling.
 

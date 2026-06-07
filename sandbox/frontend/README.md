@@ -18,7 +18,7 @@ Track** — Rapid Agent Hackathon 2026.
   - [Live Insider Threat Monitoring](#live-insider-threat-monitoring)
   - [Real-Time Risk Notification UI](#real-time-risk-notification-ui)
 - [Session Drawer Categorization & Refresh](#session-drawer-categorization--refresh)
-- [Close & Kill Session Controls](#close--kill-session-controls)
+- [Close, Kill & Delete Session Controls](#close-kill--terminate-delete-session-controls)
 - [Event Deduplication Pipeline](#-event-deduplication-pipeline)
 - [Code Workspace Telemetry — Copy, Paste & Tab Detection](#-code-workspace-telemetry--copy-paste--tab-detection)
 - [Generate Panel UX Enhancements](#-generate-panel-ux-enhancements)
@@ -245,7 +245,7 @@ the refresh, and the drawer UI rebuilds reactively when new data arrives.
 
 ---
 
-## 🛑 Close & Kill Session Controls
+## 🛑 Close, Kill & Terminate (Delete) Session Controls
 
 The dashboard provides two distinct session lifecycle controls accessible
 from the session drawer and the code workspace toolbar:
@@ -258,10 +258,12 @@ Gracefully terminates an active monitoring session via
 - Preserves all historical data (events, suspicion reports, risk payloads)
 - Session moves to the **Closed Sessions** category in the drawer
 
-### Terminate Session
+### Delete (Terminate) Session
 
-Permanently removes a session via `POST /api/v1/guardian/sessions/:id/terminate`:
+Permanently deletes a session via `DELETE /api/v1/sessions/:id`:
 - Removes the session from the in-memory registry
+- Sends a RESTful `DELETE` HTTP request with proper CORS preflight handling
+  (`Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS`)
 - **Irreversibly deletes** the session document and all associated micro-events
   from MongoDB Atlas
 - A confirmation dialog with a warning appears before dispatch
@@ -270,10 +272,10 @@ Permanently removes a session via `POST /api/v1/guardian/sessions/:id/terminate`
 
 - **Close button** (grey, `close` icon) — visible on each session tile for
   sessions in `active` or `in_progress` status
-- **Terminate button** (red, `delete_forever` icon) — shown on long-press or
+- **Delete button** (red, `delete_forever` icon) — shown on long-press or
   when expanding the tile's action menu
 - **Code workspace overflow menu** (`code_workspace_panel.dart`) also exposes
-  close and terminate actions for the currently monitored session
+  close and delete (kill) actions for the currently monitored session
 
 ---
 
@@ -380,7 +382,7 @@ All HTTP calls route through `ApiService` (`lib/services/api_service.dart`):
 - `POST /api/v1/guardian/deploy` — Deploy active monitoring session
 - `GET /api/v1/guardian/sessions/:id` — Live session risk state
 - `POST /api/v1/guardian/sessions/:id/close` — Gracefully close an active session
-- `POST /api/v1/guardian/sessions/:id/terminate` — Irreversibly delete a session
+- `DELETE /api/v1/sessions/:id` — Irreversibly delete a session (with CORS preflight support)
 - `GET /api/v1/sessions` — List all sessions
 - `GET /api/v1/sessions/:id` — Fetch session audit review
 - `POST /api/v1/identity/set` — Register employee identity

@@ -63,7 +63,7 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 - [Defensive JSON Parsing Pipeline](#-defensive-json-parsing-pipeline)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
 - [Session Drawer -- Categorization & Refresh](#-session-drawer--categorization--refresh)
-- [Close & Kill Session Controls](#-close--kill-session-controls)
+- [Close, Kill & Delete Session Controls](#close-kill--delete-session-controls)
 - [Event Deduplication Pipeline](#-event-deduplication-pipeline)
 - [Code Workspace Telemetry — Copy, Paste & Tab Detection](#-code-workspace-telemetry--copy-paste--tab-detection)
 - [Generate Panel UX Enhancements](#-generate-panel-ux-enhancements)
@@ -720,7 +720,7 @@ closing and reopening the drawer.
 
 ---
 
-## 🛑 Close & Kill Session Controls
+## 🛑 Close, Kill & Delete Session Controls
 
 The Flutter dashboard now provides two distinct session lifecycle controls
 accessible from the session drawer and the code workspace toolbar:
@@ -736,33 +736,37 @@ Gracefully terminates an active monitoring session. The Hono API:
 The session continues to appear in the **Closed Sessions** category of the
 drawer and remains queryable via `GET /api/v1/sessions/:id`.
 
-### Terminate Session (`POST /api/v1/guardian/sessions/:id/terminate`)
+### Delete (Terminate) Session (`DELETE /api/v1/sessions/:id`)
 
-Permanently removes a session from the active monitoring registry:
+Permanently deletes a session from the active monitoring registry and MongoDB Atlas:
 - Removes the session from the in-memory `activeSessions` Map
-- Calls the MCP tool to **delete** the session document and all associated
-  micro-events from MongoDB Atlas
+- Calls the MCP `delete_session` tool to **delete** the session document and
+  all associated micro-events from MongoDB Atlas
+- Uses the RESTful `DELETE` HTTP method with proper CORS headers
+  (`Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS`)
 - Intended for sessions created in error or test/development cleanup
 
 **⚠️ This action is irreversible** — the Flutter UI shows a confirmation
-dialog with a warning message before dispatching the terminate request.
+dialog with a warning message before dispatching the delete request.
 
 ### UI Integration
 
 - Each session tile in the drawer includes a **Close** button (grey, with a
   `close` icon) visible for sessions in `active` or `in_progress` status
-- A **Terminate** button (red, with a `delete_forever` icon) is shown only
+- A **Delete** button (red, with a `delete_forever` icon) is shown only
   when the operator long-presses a session tile or explicitly expands the
   tile's action menu
 - The code workspace panel (`code_workspace_panel.dart`) also exposes close
-  and terminate actions in its overflow menu for the currently monitored
+  and delete (kill) actions in its overflow menu for the currently monitored
   session
 
 ### Backend MCP Integration
 
-A new MCP tool `close_session` has been registered in the HTTP adapter
-(`mcp-server/src/http-adapter.ts`) to handle the session lifecycle state
-transitions, bringing the total MCP tool count to **10 tools**.
+The MCP HTTP adapter (`mcp-server/src/http-adapter.ts`) registers both
+`close_session` and `delete_session` tools to handle session lifecycle state
+transitions and permanent removal, bringing the total MCP tool count to
+**10 tools**. The `delete_session` tool supports CORS-preflight by
+accepting `DELETE` requests on the `/tools/delete_session` endpoint.
 
 ---
 
