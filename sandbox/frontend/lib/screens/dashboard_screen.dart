@@ -53,7 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final identity = context.watch<IdentityProvider>();
 
     return Scaffold(
       // ── App Bar ──────────────────────────────────────────────────────────
@@ -175,6 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
             ),
+          if (_showOnboarding) const SizedBox(width: 5),
           // ── Compliance Matrix — primary CTA ──
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -195,52 +195,38 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 5),
           // Logout / Switch Account button
-          IconButton(
-            icon: const Icon(Icons.logout, size: 20),
-            tooltip: 'Logout / Switch Account',
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Switch Account'),
-                  content: const Text(
-                    'Clear your current identity and return to the login screen? Your session will be ended.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        context.read<IdentityProvider>().clearIdentity();
-                      },
-                      child: const Text('Logout'),
-                    ),
-                  ],
-                ),
-              );
-            },
-            visualDensity: VisualDensity.compact,
-          ),
-          // Operator identity chip
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Chip(
-              avatar: Icon(
-                Icons.shield_moon,
-                size: 18,
-                color: theme.colorScheme.primary,
-              ),
-              label: Text(
-                identity.displayName ?? 'Operator',
-                style: theme.textTheme.labelMedium,
-              ),
-              backgroundColor: theme.colorScheme.primaryContainer,
-              side: BorderSide.none,
+            child: IconButton(
+              icon: const Icon(Icons.logout, size: 20),
+              tooltip: 'Logout / Switch Account',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Switch Account'),
+                    content: const Text(
+                      'Clear your current identity and return to the login screen? Your session will be ended.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          context.read<IdentityProvider>().clearIdentity();
+                        },
+                        child: const Text('Logout'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              visualDensity: VisualDensity.compact,
             ),
           ),
         ],
@@ -264,6 +250,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildDrawer(ThemeData theme) {
     final review = context.watch<ReviewProvider>();
     final health = context.watch<HealthProvider>();
+    final identity = context.watch<IdentityProvider>();
 
     return Drawer(
       child: Column(
@@ -276,6 +263,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Operator name + refresh & close buttons ──
                 Row(
                   children: [
                     Expanded(
@@ -305,42 +293,69 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ],
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    // Refresh sessions button
-                    IconButton(
-                      icon: Icon(
-                        Icons.refresh,
-                        size: 20,
-                        color: theme.colorScheme.onPrimaryContainer.withValues(
-                          alpha: 0.7,
+                    // ── Operator name (top right) ──
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Chip(
+                          avatar: Icon(
+                            Icons.shield_moon,
+                            size: 16,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                          label: Text(
+                            identity.displayName ?? 'Operator',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onPrimaryContainer,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          backgroundColor: theme.colorScheme.onPrimaryContainer
+                              .withValues(alpha: 0.1),
+                          side: BorderSide.none,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
                         ),
-                      ),
-                      tooltip: 'Refresh audit sessions',
-                      onPressed: () => review.loadSessions(),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                    ),
-                    // Drawer close button
-                    IconButton(
-                      icon: Icon(
-                        Icons.close,
-                        size: 20,
-                        color: theme.colorScheme.onPrimaryContainer.withValues(
-                          alpha: 0.7,
+                        const SizedBox(height: 4),
+                        // Refresh + Close buttons
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                Icons.refresh,
+                                size: 20,
+                                color: theme.colorScheme.onPrimaryContainer
+                                    .withValues(alpha: 0.7),
+                              ),
+                              tooltip: 'Refresh audit sessions',
+                              onPressed: () => review.loadSessions(),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.close,
+                                size: 20,
+                                color: theme.colorScheme.onPrimaryContainer
+                                    .withValues(alpha: 0.7),
+                              ),
+                              tooltip: 'Close drawer',
+                              onPressed: () => Navigator.pop(context),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      tooltip: 'Close drawer',
-                      onPressed: () => Navigator.pop(context),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
+                      ],
                     ),
                   ],
                 ),
