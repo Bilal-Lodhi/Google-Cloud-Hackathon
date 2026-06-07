@@ -64,6 +64,9 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
 - [Session Drawer -- Categorization & Refresh](#-session-drawer--categorization--refresh)
 - [Close & Kill Session Controls](#-close--kill-session-controls)
+- [Event Deduplication Pipeline](#-event-deduplication-pipeline)
+- [Code Workspace Telemetry — Copy, Paste & Tab Detection](#-code-workspace-telemetry--copy-paste--tab-detection)
+- [Generate Panel UX Enhancements](#-generate-panel-ux-enhancements)
 - [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
 - [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--10-tools-via-http-adapter)
 - [Agent Design Philosophy](#-agent-design-philosophy)
@@ -760,6 +763,100 @@ dialog with a warning message before dispatching the terminate request.
 A new MCP tool `close_session` has been registered in the HTTP adapter
 (`mcp-server/src/http-adapter.ts`) to handle the session lifecycle state
 transitions, bringing the total MCP tool count to **10 tools**.
+
+---
+
+## 🔁 Event Deduplication Pipeline
+
+The Guardian processes telemetry events at high frequency from the Flutter
+code workspace and polling loops. To avoid redundant Gemini inference calls,
+repeated risk notifications, and duplicate event storage, a four-tier
+deduplication pipeline is now active:
+
+### Tier 1 — Code-Hash Dedup (Backend)
+
+`POST /api/v1/guardian/ingest` computes a SHA-256 hash of `currentCode` before
+every Gemini analysis call (`node:crypto`). If the hash matches
+`lastAnalyzedCodeHash` stored on the session state, the entire Gemini call is
+skipped. The previous `lastRiskPayload` is re-emitted so the frontend
+maintains its current risk display without a blank gap.
+
+### Tier 2 — Micro-Event Fingerprint Dedup (Backend)
+
+`processEvent()` now computes a compact fingerprint for every incoming
+micro-event (`computeEventFingerprint()`). Identical events (same
+`eventType` + serialized payload) arriving within the same second are
+silently discarded. The last 128 fingerprints are maintained in a rotating
+`Set` on the session state. This prevents the Flutter polling loop from
+re-ingesting the same batch when loops overlap.
+
+### Tier 3 — Frontend Risk Payload Dedup
+
+`GuardianProvider._addEventIfNew()` suppresses duplicate
+`RiskAssessmentPayload` entries in the live events timeline. Deduplication
+is by UUID (`riskAssessmentId`) primarily, with a fallback comparison of
+`generatedAt`, `overallRiskScore`, and flag identities.
+
+### Tier 4 — Polling Fallback Cache
+
+`ApiService._lastPolledRiskPayload` caches the most recent payload yielded
+through the polling fallback stream. New payloads are only emitted when
+`riskAssessmentId` differs or structural signal fields change.
+`resetPollingCache()` clears this cache when switching sessions, ensuring
+the new session always receives fresh data.
+
+---
+
+## ⌨️ Code Workspace Telemetry — Copy, Paste & Tab Detection
+
+The Flutter code workspace (`code_workspace_panel.dart`) now captures
+operational security telemetry beyond keystrokes:
+
+- **Copy Detection**: Dedicated `_handleCopy()` method intercepts Ctrl+C,
+  copies selected text (or full text when no selection), and dispatches a
+  `COPY_ATTEMPT` micro-event with `copiedLength`, `copiedTextPreview`, and
+  `selectedTextLength` fields for forensic review.
+- **Paste Detection**: Ctrl+V detection arms a `_isPasting` flag. The next
+  `onChanged` computes the exact pasted content delta and immediately sends
+  a `PASTE` event (bypassing the debounce timer) with `pasteContent` and
+  `changeLength` payload fields.
+- **Tab Switch / Window Blur**: `WidgetsBindingObserver` detects
+  `AppLifecycleState.paused` and `AppLifecycleState.inactive` transitions,
+  dispatching `TAB_SWITCH` events with the browser `visibilityState` for
+  full audit trail.
+
+The `MicroEventPayload` model was extended with `copiedLength`,
+`copiedTextPreview`, `selectedTextLength`, and `visibilityState` fields.
+All events are ingested through the standard Guardian pipeline for
+real-time risk scoring.
+
+---
+
+## 🎛️ Generate Panel UX Enhancements
+
+The compliance matrix generation bottom sheet (`generate_panel.dart`) has
+been redesigned for operator efficiency:
+
+- **FilledButton CTA**: The app bar "Compliance" button now uses a
+  `FilledButton.icon` with `elevation: 2` and a 10px border radius for
+  prominence, replacing the previous `TextButton`.
+- **Dropdown Target System Selector**: The `ChoiceChip` row for target
+  system selection has been replaced with a `DropdownButtonFormField`
+  featuring icons, filled surface, and `isExpanded: true` for better
+  usability on narrow screens.
+- **Risk Distribution Capping**: The three severity weight sliders
+  (Routine, Elevated, Critical) now enforce mutual capping so the total
+  always sums to exactly 100%. Each slider automatically clamps when
+  dragging beyond the remaining available percentage. A `Total: N%` label
+  provides real-time feedback.
+- **Responsive Layout**: On wide screens (≥ 600px), the sheet is centered
+  as a constrained card (max 650px wide) instead of a full-width bottom
+  sheet. On narrow screens, the traditional bottom sheet layout is
+  preserved.
+- **Session Reset on Drawer Selection**: Tapping a session in the drawer
+  now calls `GuardianProvider.resetForNewSession()` to clear the previous
+  session's risk payload, events, and streaming subscription, then starts
+  a fresh SSE stream for the newly selected session.
 
 ---
 
