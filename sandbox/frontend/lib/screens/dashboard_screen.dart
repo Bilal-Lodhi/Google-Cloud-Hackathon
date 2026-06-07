@@ -28,6 +28,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  bool _showOnboarding = true;
 
   @override
   void initState() {
@@ -65,6 +66,115 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
         actions: [
+          // ── Get Started? Dropdown ──
+          if (_showOnboarding)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: PopupMenuButton<String>(
+                offset: const Offset(0, 48),
+                color: theme.colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                onSelected: (value) {
+                  if (value == 'start') {
+                    ComplianceSheet.show(context);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    padding: EdgeInsets.zero,
+                    child: _buildOnboardingPopupContent(theme),
+                  ),
+                  const PopupMenuDivider(height: 1),
+                  PopupMenuItem<String>(
+                    value: 'start',
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.gavel,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Start Your First Audit',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'dismiss',
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.close,
+                          size: 18,
+                          color: theme.colorScheme.outline,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Dismiss Guide',
+                          style: TextStyle(color: theme.colorScheme.outline),
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      Future.microtask(
+                        () => setState(() => _showOnboarding = false),
+                      );
+                    },
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.live_help,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Get Started?',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: theme.colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        size: 18,
+                        color: theme.colorScheme.onPrimaryContainer.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           // ── Compliance Matrix — primary CTA ──
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -440,6 +550,151 @@ class _DashboardScreenState extends State<DashboardScreen>
           side: BorderSide.none,
         );
       }).toList(),
+    );
+  }
+
+  // ── Onboarding Popup Content ──────────────────────────────────────────────
+  /// Compact step-by-step guide rendered inside the AppBar dropdown.
+  Widget _buildOnboardingPopupContent(ThemeData theme) {
+    return Container(
+      width: 320,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: theme.colorScheme.surface,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.rocket_launch,
+                size: 22,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Get Started — Deploy Your First Audit',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildOnboardingStep(
+            theme,
+            stepNumber: '1',
+            icon: Icons.gavel,
+            title: 'Click',
+            boldPart: 'Compliance',
+            description: 'in the top bar → matrix generator',
+            isPrimary: true,
+          ),
+          _buildOnboardingStep(
+            theme,
+            stepNumber: '2',
+            icon: Icons.tune,
+            title: 'Configure target system, risk weights & prompt, tap',
+            boldPart: 'Generate Matrix',
+            description: '',
+            isPrimary: false,
+          ),
+          _buildOnboardingStep(
+            theme,
+            stepNumber: '3',
+            icon: Icons.rocket_launch,
+            title: 'Review AI rules and tap',
+            boldPart: 'Deploy',
+            description: 'to create audit session',
+            isPrimary: false,
+          ),
+          _buildOnboardingStep(
+            theme,
+            stepNumber: '4',
+            icon: Icons.check_circle_outline,
+            title: 'Select session',
+            boldPart: 'from the drawer',
+            description: '(☰ top left) to monitor telemetry',
+            isPrimary: false,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnboardingStep(
+    ThemeData theme, {
+    required String stepNumber,
+    required IconData icon,
+    required String title,
+    required String boldPart,
+    required String description,
+    required bool isPrimary,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Step circle
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isPrimary
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.primary.withValues(alpha: 0.15),
+              border: Border.all(
+                color: isPrimary
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.primary.withValues(alpha: 0.3),
+                width: 1.5,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              stepNumber,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: isPrimary
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Step text
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onPrimaryContainer,
+                  height: 1.4,
+                ),
+                children: [
+                  TextSpan(text: '$title '),
+                  TextSpan(
+                    text: boldPart,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  if (description.isNotEmpty) TextSpan(text: ' $description'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
