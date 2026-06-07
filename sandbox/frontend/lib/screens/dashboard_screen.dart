@@ -339,7 +339,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                             ),
                             IconButton(
                               icon: Icon(
-                                Icons.close,
+                                Icons.chevron_left,
                                 size: 20,
                                 color: theme.colorScheme.onPrimaryContainer
                                     .withValues(alpha: 0.7),

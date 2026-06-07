@@ -211,6 +211,7 @@ class AnomalyFlag {
   final String description;
   final double confidence;
   final String evidenceSnippet;
+  final String timestamp;
 
   const AnomalyFlag({
     required this.flagId,
@@ -218,6 +219,7 @@ class AnomalyFlag {
     required this.description,
     required this.confidence,
     required this.evidenceSnippet,
+    this.timestamp = '',
   });
 
   factory AnomalyFlag.fromJson(Map<String, dynamic> json) {
@@ -241,6 +243,7 @@ class AnomalyFlag {
           json['evidenceSnippet'] as String? ??
           json['description'] as String? ??
           '',
+      timestamp: json['timestamp'] as String? ?? '',
     );
   }
 }

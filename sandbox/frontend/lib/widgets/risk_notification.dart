@@ -535,12 +535,16 @@ class _RiskNotificationOverlayState extends State<_RiskNotificationOverlay>
       );
     }
 
+    // Sort flags newest-first by timestamp (ISO-8601 string comparison).
+    final sortedFlags = List<AnomalyFlag>.from(payload.flags)
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
     return ListView.separated(
       padding: const EdgeInsets.all(12),
-      itemCount: payload.flags.length,
+      itemCount: sortedFlags.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
-        final flag = payload.flags[index];
+        final flag = sortedFlags[index];
         return _FlagCard(flag: flag);
       },
     );
@@ -1002,6 +1006,27 @@ class _FlagCardState extends State<_FlagCard> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          // ── Time Flagged ──
+          if (flag.timestamp.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: 13,
+                  color: theme.colorScheme.outline,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  _formatTimestamp(flag.timestamp),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (flag.evidenceSnippet.isNotEmpty) ...[
             const SizedBox(height: 6),
             Container(
@@ -1132,6 +1157,33 @@ class _FlagCardState extends State<_FlagCard> {
                 ),
               ],
             ),
+            const SizedBox(height: 4),
+            // Time Flagged row (expanded)
+            if (flag.timestamp.isNotEmpty)
+              Row(
+                children: [
+                  Text(
+                    'Time Flagged: ',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Icon(
+                    Icons.access_time,
+                    size: 12,
+                    color: theme.colorScheme.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatTimestamp(flag.timestamp),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      color: catColor,
+                    ),
+                  ),
+                ],
+              ),
             const SizedBox(height: 4),
             // Full evidence snippet
             if (flag.evidenceSnippet.isNotEmpty) ...[
@@ -1395,5 +1447,43 @@ Color _flagCategoryColor(String category) {
       return Colors.blue;
     default:
       return Colors.grey;
+  }
+}
+
+/// Formats an ISO-8601 timestamp string into a human-readable label.
+/// e.g. "2026-06-07T15:30:00Z" → "Today 3:30 PM" or "Jun 7, 2026 3:30 PM"
+String _formatTimestamp(String isoTimestamp) {
+  try {
+    final dt = DateTime.parse(isoTimestamp).toLocal();
+    final now = DateTime.now();
+    final isToday =
+        dt.year == now.year && dt.month == now.month && dt.day == now.day;
+
+    final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final amPm = dt.hour >= 12 ? 'PM' : 'AM';
+    final timeStr = '$hour:$minute $amPm';
+
+    if (isToday) {
+      return 'Today $timeStr';
+    }
+
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} $timeStr';
+  } catch (_) {
+    return isoTimestamp;
   }
 }
