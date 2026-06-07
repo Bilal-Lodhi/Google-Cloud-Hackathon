@@ -627,7 +627,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       FilledButton(
                         onPressed: () {
                           Navigator.pop(ctx);
-                          review.terminateSession(session.sessionId);
+                          review.deleteSession(session.sessionId);
                         },
                         style: FilledButton.styleFrom(
                           backgroundColor: theme.colorScheme.error,

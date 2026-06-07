@@ -564,9 +564,29 @@ class ApiService {
     return merged;
   }
 
-  /// Sends a DELETE request to terminate (kill) a live session on the backend.
-  /// Removes the session from in-memory registries and notifies MongoDB via MCP.
+  /// Sends a POST request to TERMINATE (stop) a live session WITHOUT deleting it.
+  /// Marks the session as "terminated" in all layers but preserves the audit trail.
+  /// The session remains visible in the drawer and review endpoint as terminated.
   Future<void> terminateSession(String sessionId) async {
+    final uri = Uri.parse(
+      '$baseUrl/api/v1/guardian/sessions/$sessionId/terminate',
+    );
+    final res = await _client
+        .post(uri, headers: _commonHeaders())
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200 && res.statusCode != 404) {
+      throw ApiException(
+        res.statusCode,
+        'Failed to terminate session: ${res.body}',
+      );
+    }
+  }
+
+  /// Sends a DELETE request to PERMANENTLY delete a session from all layers.
+  /// Removes the session from in-memory registries AND MongoDB (session doc +
+  /// all associated micro-events + suspicion reports). The session will no
+  /// longer appear in the drawer or review endpoint.
+  Future<void> deleteSession(String sessionId) async {
     final uri = Uri.parse('$baseUrl/api/v1/guardian/sessions/$sessionId');
     final res = await _client
         .delete(uri, headers: _commonHeaders())
@@ -574,7 +594,7 @@ class ApiService {
     if (res.statusCode != 200 && res.statusCode != 404) {
       throw ApiException(
         res.statusCode,
-        'Failed to terminate session: ${res.body}',
+        'Failed to delete session: ${res.body}',
       );
     }
   }

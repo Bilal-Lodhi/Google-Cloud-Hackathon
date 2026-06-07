@@ -70,6 +70,8 @@ interface SessionState {
   /** Fingerprints of the last N micro-events to suppress true duplicates
    *  that arrive in rapid succession (same eventType + payload digest). */
   recentEventFingerprints: Set<string>;
+  /** ISO timestamp of when the session was terminated (only set on terminate, not delete). */
+  endedAt?: string;
 }
 
 const sessionStore = new Map<string, SessionState>();
@@ -1027,6 +1029,54 @@ async function getReferenceCompletions(
 ): Promise<string[]> {
   return [];
 }
+
+// --- POST /api/v1/guardian/sessions/:sessionId/terminate ------------------
+// Terminates an active session WITHOUT deleting any data:
+//   1. Removes from the in-memory active-sessions registry (stops SSE streaming)
+//   2. Marks sessionStore entry status as "terminated"
+//   3. Notifies MongoDB via MCP to set status = "terminated" (preserves audit trail)
+// The session remains visible in the drawer and review endpoint as terminated.
+
+guardianRouter.post("/sessions/:sessionId/terminate", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const requestId = crypto.randomUUID();
+  console.log(`[Guardian Route] [${requestId}] Incoming POST /api/v1/guardian/sessions/${sessionId}/terminate`);
+
+  let found = false;
+
+  // ── 1. Remove from active-sessions (stops live monitoring) ──
+  if (activeSessions.has(sessionId)) {
+    activeSessions.delete(sessionId);
+    found = true;
+    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' removed from activeSessions`);
+  }
+
+  // ── 2. Mark as terminated in sessionStore (preserve data) ──
+  if (sessionStore.has(sessionId)) {
+    const state = sessionStore.get(sessionId)!;
+    state.status = "terminated";
+    state.endedAt = new Date().toISOString();
+    sessionStore.set(sessionId, state);
+    found = true;
+    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' marked terminated in sessionStore`);
+  }
+
+  // ── 3. Notify MongoDB via MCP to set status = "terminated" (preserve doc) ──
+  try {
+    await mcpFetch("terminate_session", { sessionId }, requestId);
+    found = true;
+    console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' marked terminated in MongoDB (MCP)`);
+  } catch (_) {
+    console.warn(`[Guardian Route] [${requestId}] MCP terminate_session failed for '${sessionId}' — in-memory termination proceeded`);
+  }
+
+  if (!found) {
+    return c.json({ success: false, error: `Session '${sessionId}' not found` }, 404);
+  }
+
+  console.log(`[Guardian Route] [${requestId}] Session '${sessionId}' terminated (data preserved)`);
+  return c.json({ success: true, sessionId, message: "Session terminated (data preserved)" });
+});
 
 // --- DELETE /api/v1/guardian/sessions/:sessionId --------------------------
 // Permanently deletes a session from all layers:

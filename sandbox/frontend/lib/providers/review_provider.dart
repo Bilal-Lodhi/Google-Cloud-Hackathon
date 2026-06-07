@@ -66,9 +66,9 @@ class ReviewProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> terminateSession(String sessionId) async {
+  Future<void> deleteSession(String sessionId) async {
     try {
-      await _api.terminateSession(sessionId);
+      await _api.deleteSession(sessionId);
     } on ApiException catch (_) {
       // Even if the backend call fails, remove from local list and refresh
     } finally {
