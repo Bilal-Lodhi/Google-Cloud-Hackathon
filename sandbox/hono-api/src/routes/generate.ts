@@ -37,6 +37,101 @@ import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
 import { toISOStringLocal } from "../utils/time.js";
 
+// ═══════════════════════════════════════════════════════════════════
+// Stage 1: Regex-Based Content Pre-Filter
+//
+// Catches obvious vulgarity, profanity, keyboard mashing / gibberish,
+// and empty/greeting-only inputs BEFORE sending to Gemini.
+// This is a fast, deterministic first line of defense.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Common profanity/vulgarity patterns (case-insensitive). */
+const PROFANITY_PATTERNS = [
+  /\bf[u*]ck\b/i,
+  /\bsh[i*]t\b/i,
+  /\bb[i*]tch\b/i,
+  /\ba[s*]{2}\b/i,
+  /\b(d[a*]mn?|d[a*]ng?)\b/i,
+  /\bd[i*]ck\b/i,
+  /\bp[u*]ss[iy*]\b/i,
+  /\bc[u*]nt\b/i,
+  /\bb[a*]st[a*]rd\b/i,
+  /\bwh[o*]re\b/i,
+  /\bsl[u*]t\b/i,
+  /\bf[a*]g(got)?\b/i,
+  /\bn[i*]gg[ae][r]\b/i,
+  /\br[e*]t[a*]rd\b/i,
+  /\bc[r*]a[p]\b/i,
+];
+
+/** Keyboard mashing / gibberish patterns. */
+const GIBBERISH_PATTERNS = [
+  /^[a-z]{10,}$/i,                         // Single very long word (all letters)
+  /(.)\1{8,}/,                              // Same character repeated 9+ times
+  /^[^a-z]{10,}$/i,                         // 10+ non-alphabetic chars only
+  /^[qwertyuiopasdfghjklzxcvbnm]{12,}$/i,   // Only keyboard-row letters, 12+
+  /([aeiou]{5,}|[bcdfghjklmnpqrstvwxyz]{8,})/i, // 5+ vowels or 8+ consonants in a row
+];
+
+/**
+ * Determines if a prompt is a casual greeting / single word.
+ * Returns true if the input is just "hi", "hello", "hey", "sup", etc.
+ */
+function isGreetingOnly(input: string): boolean {
+  const trimmed = input.trim().toLowerCase();
+  const greetings = /^(hi|hello|hey|sup|yo|hola|greetings|what.?s up|howdy|heya|heyy|hii|helloo|whats up|what's up)[!.]*$/i;
+  return greetings.test(trimmed);
+}
+
+/**
+ * Stage 1 fast pre-filter result.
+ */
+interface PreFilterResult {
+  passed: boolean;
+  reason: string;
+  flags: string[];
+}
+
+/**
+ * Run the fast regex-based pre-filter on the raw prompt.
+ */
+function runPreFilter(prompt: string): PreFilterResult {
+  const trimmed = prompt.trim();
+
+  // Empty / whitespace-only
+  if (trimmed.length === 0) {
+    return { passed: false, reason: "Input is empty.", flags: ["EMPTY_INPUT"] };
+  }
+
+  // Single word / greeting
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount === 1) {
+    if (isGreetingOnly(trimmed)) {
+      return { passed: false, reason: "Casual greeting detected — not a compliance audit request.", flags: ["GREETING_ONLY"] };
+    }
+    if (trimmed.length < 3) {
+      return { passed: false, reason: "Input too short to be meaningful.", flags: ["GIBBERISH"] };
+    }
+    // Single short word likely not meaningful, let Gemini have final say
+  }
+
+  // Profanity/Vulgarity check
+  for (const pattern of PROFANITY_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return { passed: false, reason: "Inappropriate content detected by pre-filter.", flags: ["PROFANITY", "VULGARITY"] };
+    }
+  }
+
+  // Keyboard mashing / gibberish check
+  for (const pattern of GIBBERISH_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return { passed: false, reason: "Gibberish or keyboard mashing detected by pre-filter.", flags: ["GIBBERISH", "KEYBOARD_MASHING"] };
+    }
+  }
+
+  return { passed: true, reason: "Pre-filter passed.", flags: [] };
+}
+
 const generateRouter = new Hono();
 const config = loadConfig();
 const gemini = new GeminiClient(config);
@@ -72,6 +167,12 @@ interface PipelineDiagnostics {
   startedAt: string;
   /** The raw input after trimming */
   input: string;
+  /** ── Stage 1 Pre-Filter ── */
+  preFilter: {
+    passed: boolean;
+    reason: string;
+    flags: string[];
+  };
   /** ── Gemini Classifier ── */
   geminiClassifier: {
     executed: boolean;
@@ -79,6 +180,8 @@ interface PipelineDiagnostics {
     verdict?: {
       isInputMeaningful: boolean;
       isAssessmentRelated: boolean;
+      isAppropriate: boolean;
+      contentFlags: string[];
       confidence: number;
       detectedDomain: string;
       detectedAssessmentType: string;
@@ -92,11 +195,13 @@ interface PipelineDiagnostics {
 function buildPipelineDiag(
   startedAt: string,
   input: string,
+  preFilter: PipelineDiagnostics["preFilter"],
   geminiClassifier: PipelineDiagnostics["geminiClassifier"],
 ): PipelineDiagnostics {
   return {
     startedAt,
     input,
+    preFilter,
     geminiClassifier,
   };
 }
@@ -214,11 +319,48 @@ generateRouter.post("/", async (c) => {
 
   const trimmedPrompt = body.prompt.trim();
 
-  // ── Step 2: Gemini Classifier (SOLE gatekeeper) ────────────────
-  // Every input flows through Gemini — it determines meaning, domain,
-  // assessment relevance, and confidence. No pattern-matching pre-filter.
+  // ── Step 2a: Stage 1 Regex Pre-Filter ──────────────────────────
+  // Fast deterministic check for obvious vulgarity, gibberish, greetings
+  // BEFORE sending to Gemini. Saves API cost and provides instant rejection.
   console.log(
-    `[Generate Route] [${requestId}] Step 2 — Running Gemini classifyAssessmentIntent...`,
+    `[Generate Route] [${requestId}] Step 2a — Running regex pre-filter...`,
+  );
+  const preFilterResult = runPreFilter(trimmedPrompt);
+  console.log(
+    `[Generate Route] [${requestId}] Pre-filter result: passed=${preFilterResult.passed} ` +
+      `flags=[${preFilterResult.flags.join(", ") || "none"}] reason="${preFilterResult.reason}"`,
+  );
+
+  if (!preFilterResult.passed) {
+    console.warn(
+      `[Generate Route] [${requestId}] Pre-filter REJECTED. Flags: [${preFilterResult.flags.join(", ")}]`,
+    );
+
+    return c.json(
+      {
+        success: false,
+        error:
+          preFilterResult.reason +
+          "\n\nSecurity Violation: I am the Cerberus FinSec Insider Threat & Data Exfiltration Guardian. " +
+          "Request a compliance audit, threat matrix, or penetration test to proceed.",
+        correlationId: requestId,
+        preFilterFlags: preFilterResult.flags,
+        pipeline: buildPipelineDiag(
+          startedAt,
+          trimmedPrompt,
+          { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
+          { executed: false, elapsedMs: 0 },
+        ),
+      },
+      422,
+    );
+  }
+
+  // ── Step 2b: Gemini Classifier (semantic gatekeeper) ───────────
+  // Pre-filter passed — now Gemini applies genuine semantic understanding
+  // to detect inappropriate content, meaning, domain, and assessment relevance.
+  console.log(
+    `[Generate Route] [${requestId}] Step 2b — Running Gemini classifyAssessmentIntent...`,
   );
 
   let classifierDiag: PipelineDiagnostics["geminiClassifier"] = {
@@ -254,6 +396,8 @@ generateRouter.post("/", async (c) => {
       `[Generate Route] [${requestId}] Gemini classifier returned in ${classifierElapsed}ms — ` +
         `isInputMeaningful=${verdict.isInputMeaningful} ` +
         `isAssessmentRelated=${verdict.isAssessmentRelated} ` +
+        `isAppropriate=${verdict.isAppropriate} ` +
+        `contentFlags=[${verdict.contentFlags?.join(", ") || "none"}] ` +
         `confidence=${verdict.confidence.toFixed(2)} ` +
         `detectedDomain="${verdict.detectedDomain}" ` +
         `detectedAssessmentType="${verdict.detectedAssessmentType}" ` +
@@ -266,6 +410,8 @@ generateRouter.post("/", async (c) => {
       verdict: {
         isInputMeaningful: verdict.isInputMeaningful,
         isAssessmentRelated: verdict.isAssessmentRelated,
+        isAppropriate: verdict.isAppropriate,
+        contentFlags: verdict.contentFlags ?? [],
         confidence: verdict.confidence,
         detectedDomain: verdict.detectedDomain,
         detectedAssessmentType: verdict.detectedAssessmentType,
@@ -276,16 +422,24 @@ generateRouter.post("/", async (c) => {
     // ── Tiered rejection logic ──
     const classifierErrors: string[] = [];
 
+    // Tier 0: Content Appropriateness (HIGHEST priority)
+    if (!verdict.isAppropriate) {
+      const flags = verdict.contentFlags?.join(", ") ?? "CONTENT_VIOLATION";
+      classifierErrors.push(`isAppropriate=false (flags: ${flags})`);
+    }
+
     if (!verdict.isInputMeaningful) {
       classifierErrors.push("isInputMeaningful=false");
     }
     if (
+      verdict.isAppropriate &&
       verdict.isInputMeaningful &&
       !verdict.isAssessmentRelated
     ) {
       classifierErrors.push("isAssessmentRelated=false");
     }
     if (
+      verdict.isAppropriate &&
       verdict.isInputMeaningful &&
       verdict.isAssessmentRelated &&
       verdict.confidence < 0.75
@@ -295,6 +449,7 @@ generateRouter.post("/", async (c) => {
       );
     }
     if (
+      verdict.isAppropriate &&
       verdict.isInputMeaningful &&
       verdict.isAssessmentRelated &&
       (!verdict.detectedDomain ||
@@ -325,9 +480,11 @@ generateRouter.post("/", async (c) => {
           correlationId: requestId,
           classificationConfidence: verdict.confidence,
           detectedDomain: verdict.detectedDomain || null,
+          contentFlags: verdict.contentFlags ?? [],
           pipeline: buildPipelineDiag(
             startedAt,
             trimmedPrompt,
+            { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
             classifierDiag,
           ),
         },
@@ -354,8 +511,32 @@ generateRouter.post("/", async (c) => {
       error: classifierMsg,
     };
 
+    // ── FAIL-CLOSED: If the classifier is unavailable, reject the request ──
+    // Previously this was fail-open ("proceeding to generation anyway"),
+    // which allowed all content to pass through when Gemini was down.
     console.warn(
-      `[Generate Route] [${requestId}] Classifier degraded — proceeding to generation anyway.`,
+      `[Generate Route] [${requestId}] Classifier unavailable — rejecting request (fail-closed).`,
+    );
+
+    return c.json(
+      {
+        success: false,
+        error:
+          "Cerberus FinSec compliance classifier is currently unavailable. " +
+          "Your request could not be validated for content appropriateness and compliance relevance. " +
+          "Please try again in a moment.\n\n" +
+          "Security Violation: I am the Cerberus FinSec Insider Threat & Data Exfiltration Guardian. " +
+          "Request a compliance audit, threat matrix, or penetration test to proceed.",
+        correlationId: requestId,
+        retryable: true,
+        pipeline: buildPipelineDiag(
+          startedAt,
+          trimmedPrompt,
+          { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
+          classifierDiag,
+        ),
+      },
+      503,
     );
   }
 
@@ -402,6 +583,7 @@ generateRouter.post("/", async (c) => {
       pipeline: buildPipelineDiag(
         startedAt,
         trimmedPrompt,
+        { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
         classifierDiag,
       ),
     };
@@ -437,6 +619,7 @@ generateRouter.post("/", async (c) => {
           pipeline: buildPipelineDiag(
             startedAt,
             trimmedPrompt,
+            { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
             classifierDiag,
           ),
         },
@@ -466,6 +649,7 @@ generateRouter.post("/", async (c) => {
         pipeline: buildPipelineDiag(
           startedAt,
           trimmedPrompt,
+          { passed: preFilterResult.passed, reason: preFilterResult.reason, flags: preFilterResult.flags },
           classifierDiag,
         ),
       },

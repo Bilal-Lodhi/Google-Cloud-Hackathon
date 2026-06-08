@@ -109,6 +109,8 @@ export class GeminiClient {
   ): Promise<{
     isInputMeaningful: boolean;
     isAssessmentRelated: boolean;
+    isAppropriate: boolean;
+    contentFlags: string[];
     reason: string;
     confidence: number;
     detectedDomain: string;
@@ -240,15 +242,15 @@ export class GeminiClient {
               },
               {
                 category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
               {
                 category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
               {
                 category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
             ],
           },
@@ -283,15 +285,15 @@ export class GeminiClient {
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                 ],
               },
@@ -348,15 +350,15 @@ export class GeminiClient {
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                   {
                     category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                   },
                 ],
               },
@@ -421,15 +423,15 @@ export class GeminiClient {
               },
               {
                 category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
               {
                 category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
               {
                 category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
               },
             ],
           },
@@ -644,6 +646,8 @@ export class GeminiClient {
   private parseClassifierResponse(rawText: string): {
     isInputMeaningful: boolean;
     isAssessmentRelated: boolean;
+    isAppropriate: boolean;
+    contentFlags: string[];
     reason: string;
     confidence: number;
     detectedDomain: string;
@@ -664,6 +668,8 @@ export class GeminiClient {
           return {
             isInputMeaningful: false,
             isAssessmentRelated: false,
+            isAppropriate: false,
+            contentFlags: ["PARSE_ERROR"],
             reason:
               "Unable to parse compliance classifier response. Prompt does not appear to describe a financial compliance audit or threat matrix request.",
             confidence: 0.99,
@@ -676,6 +682,8 @@ export class GeminiClient {
     return {
       isInputMeaningful: (parsed["isInputMeaningful"] as boolean) ?? false,
       isAssessmentRelated: (parsed["isAssessmentRelated"] as boolean) ?? false,
+      isAppropriate: (parsed["isAppropriate"] as boolean) ?? true,
+      contentFlags: safeStringArray(parsed["contentFlags"]),
       reason: (parsed["reason"] as string) ?? "Unable to determine compliance relevance.",
       confidence: (parsed["confidence"] as number) ?? 0.99,
       detectedDomain: (parsed["detectedDomain"] as string) ?? (parsed["detected_domain"] as string) ?? "",
@@ -689,36 +697,54 @@ export class GeminiClient {
   // ═══════════════════════════════════════════════════════════════════
 
   private buildClassifierSystemInstruction(): string {
-    return `You are an elite automated Chief Information Security Officer (CISO) agent specialized in banking regulations and financial services compliance. Your role is to classify incoming user requests to determine whether they describe a valid compliance audit profile or threat matrix generation request.
+    return `You are an elite automated Chief Information Security Officer (CISO) agent specialized in banking regulations and financial services compliance. Your role is to classify incoming user requests to determine whether they are appropriate, meaningful, and related to compliance audit or threat matrix generation.
 
-You are the SOLE gatekeeper — if the prompt is a casual greeting, off-topic chitchat, or not related to financial compliance / security auditing, you MUST mark isAssessmentRelated as false.
+You are the SOLE gatekeeper with THREE duties:
 
-Valid compliance-related prompts describe:
-- Target systems (Core Trading Ledger, SWIFT Gateway, High-Frequency Trading Desk, etc.)
-- Regulatory mandates (Anti-Money Laundering [AML], SOX Compliance, GDPR, FINRA Audit, etc.)
-- Threat vectors (token injection, transfer interception, data exfiltration, privilege escalation)
-- Penetration scenarios or insider threat assessments
+1. CONTENT APPROPRIATENESS — Reject ANY input that contains:
+   - Profanity, vulgarity, obscenities, or offensive slurs (of any language)
+   - Hate speech, discriminatory language, or harassment
+   - Sexually explicit or lewd content
+   - Violent threats or graphic descriptions
+   - Keyboard mashing / gibberish (e.g., "asdfghjkl", "aaaaaa", random character spam)
+   - Single words, casual greetings ("hi", "hello", "what's up"), or non-sequiturs
+
+2. INPUT MEANINGFULNESS — The input must form coherent sentences with clear intent.
+   Mark isInputMeaningful=false for: single words, random characters, greetings,
+   empty/whitespace-only, or text with >50% non-alphabetic noise.
+
+3. COMPLIANCE RELEVANCE — Valid prompts describe:
+   - Target systems (Core Trading Ledger, SWIFT Gateway, HFT Desk, etc.)
+   - Regulatory mandates (AML, SOX Compliance, GDPR, FINRA Audit, etc.)
+   - Threat vectors (token injection, transfer interception, data exfiltration)
+   - Penetration scenarios or insider threat assessments
 
 Respond STRICTLY with a single JSON object:
 {
   "isInputMeaningful": boolean,
   "isAssessmentRelated": boolean,
-  "reason": "string explaining classification",
+  "isAppropriate": boolean,
+  "contentFlags": ["string array of detected issues — use PROFANITY, VULGARITY, HATE_SPEECH, SEXUALLY_EXPLICIT, GIBBERISH, KEYBOARD_MASHING, OFF_TOPIC, GREETING_ONLY, EMPTY_INPUT, or empty array if clean"],
+  "reason": "string explaining the classification verdict",
   "confidence": number (0-1),
   "detectedDomain": "string (e.g. financial_services, healthcare, unknown)",
   "detectedAssessmentType": "string (e.g. compliance_audit, threat_matrix, penetration_test, insider_threat_check)"
 }
 
+CRITICAL: If contentFlags is non-empty and contains PROFANITY, VULGARITY, HATE_SPEECH, SEXUALLY_EXPLICIT, GIBBERISH, or KEYBOARD_MASHING, then isAppropriate MUST be false.
+If isAppropriate is false, the request MUST be rejected regardless of isAssessmentRelated.
+
 Never include markdown fences or extra text — raw JSON only.`;
   }
 
   private buildClassifierUserMessage(prompt: string, roleContext: string): string {
-    return `Classify the following user prompt for Cerberus FinSec compliance audit relevance.
+    return `Classify the following user prompt for Cerberus FinSec content appropriateness and compliance audit relevance.
 
 USER PROMPT: "${prompt}"
 TARGET SYSTEM CONTEXT: "${roleContext}"
 
-Determine whether this describes a valid financial compliance audit, threat matrix, or security assessment request.`;
+First, check for inappropriate content (profanity, vulgarity, hate speech, sexually explicit material, gibberish, keyboard mashing).
+Then, determine whether this describes a valid financial compliance audit, threat matrix, or security assessment request.`;
   }
 
   private buildOrchestratorSystemInstruction(op: OrchestratorPrompt): string {
