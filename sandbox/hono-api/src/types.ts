@@ -162,6 +162,12 @@ export interface MicroEventPayload {
   diffPatch?: string;
   /** For PASTE_TRIGGER: the pasted content snapshot */
   pasteContent?: string;
+  /** For COPY_ATTEMPT: copied text preview (possibly truncated) */
+  copyContent?: string;
+  /** For COPY_ATTEMPT: total copied character count */
+  copiedLength?: number;
+  /** For COPY_ATTEMPT: selected text length before fallback-to-full-text copy */
+  selectedTextLength?: number;
   /** For COPY_ATTEMPT: selected text */
   selectedText?: string;
   /** Browser tab visibility state */

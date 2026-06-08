@@ -142,6 +142,56 @@ async function safeMcpFetch<T = unknown>(
   }
 }
 
+/**
+ * Extracts the effective character count from a COPY_ATTEMPT event payload.
+ * Cascades through all known field names across data sources (Flutter,
+ * MCP/MongoDB, legacy) using nullish coalescing so the timeline never
+ * shows "0 characters copied" when at least one field is populated.
+ *
+ * Priority order:
+ *   1. copiedLength        — authoritative full-length number from Flutter
+ *   2. selectedTextLength  — selected text length as number
+ *   3. copyContent         — truncated preview string (max 100 chars). NOTE:
+ *                            If copiedLength is missing, this will return
+ *                            the TRUNCATED length, not the actual full count.
+ *                            In practice this edge case is rare because
+ *                            copiedLength is almost always present.
+ *   4. copiedTextPreview   — alternate truncated preview (same caveat as #3)
+ *   5. selectedText        — legacy "selectedText" string length
+ *   6. 0                   — absolute fallback (no data available)
+ */
+function extractCopyLength(payload: Record<string, unknown> | undefined): number {
+  const copiedLength =
+    typeof payload?.["copiedLength"] === "number"
+      ? (payload["copiedLength"] as number)
+      : undefined;
+  const selectedTextLength =
+    typeof payload?.["selectedTextLength"] === "number"
+      ? (payload["selectedTextLength"] as number)
+      : undefined;
+  const copyContentLength =
+    typeof payload?.["copyContent"] === "string"
+      ? (payload["copyContent"] as string).length
+      : undefined;
+  const copiedTextPreviewLength =
+    typeof payload?.["copiedTextPreview"] === "string"
+      ? (payload["copiedTextPreview"] as string).length
+      : undefined;
+  const legacySelectedLength =
+    typeof payload?.["selectedText"] === "string"
+      ? (payload["selectedText"] as string).length
+      : undefined;
+
+  return (
+    copiedLength ??
+    selectedTextLength ??
+    copyContentLength ??
+    copiedTextPreviewLength ??
+    legacySelectedLength ??
+    0
+  );
+}
+
 // ─── GET /api/v1/sessions ───────────────────────────────────────
 // Lists all sessions from a UNION of MCP (durable MongoDB) + in-memory
 // sessionStore (live). The Flutter left drawer always shows active
@@ -476,7 +526,10 @@ reviewRouter.get("/:sessionId", async (c) => {
               severity = "warning";
               break;
             case "COPY_ATTEMPT":
-              detail = `Selected: ${((event.payload?.selectedText as string)?.length ?? 0)} chars`;
+              {
+                const effectiveLength = extractCopyLength(event.payload as Record<string, unknown> | undefined);
+                detail = `Selected: ${effectiveLength} chars`;
+              }
               severity = "critical";
               break;
             case "DEVELOPER_TOOLS_OPEN":
@@ -636,7 +689,10 @@ reviewRouter.get("/:sessionId", async (c) => {
           break;
         case "COPY_ATTEMPT":
           label = "Copy Attempt";
-          detail = `Selected: ${((event.payload?.selectedText as string)?.length ?? 0)} chars`;
+          {
+            const effectiveLength = extractCopyLength(event.payload as Record<string, unknown> | undefined);
+            detail = `Selected: ${effectiveLength} chars`;
+          }
           severity = "critical";
           break;
         case "DEVELOPER_TOOLS_OPEN":
