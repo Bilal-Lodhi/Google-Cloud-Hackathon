@@ -260,7 +260,7 @@ Google-Cloud-Hackathon/
 ### Prerequisites
 
 - **Node.js** ≥ 22
-- **Google Cloud Project** with Vertex AI API enabled (project ID: `webscraping-464710`)
+- **Google Cloud Project** with Vertex AI API enabled (project ID: `YOUR_PROJECT_ID`)
 - **Application Default Credentials** configured (`gcloud auth application-default login`)
 - **MongoDB Atlas** connection string (set as `MONGODB_URI`)
 - **Flutter SDK** ≥ 3.24 (for the compliance dashboard)
@@ -284,7 +284,7 @@ Key configuration options in `.env.example`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GCP_PROJECT_ID` | `webscraping-464710` | Google Cloud project ID for Vertex AI |
+| `GCP_PROJECT_ID` | `YOUR_PROJECT_ID` | Google Cloud project ID for Vertex AI |
 | `GCP_LOCATION` | `global` | Vertex AI endpoint — use `global` for Gemini 3 Flash Preview |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Model to use for all inference |
 | `GEMINI_MAX_OUTPUT_TOKENS` | `65536` | Max tokens for Gemini responses (prevent truncation on large matrices) |

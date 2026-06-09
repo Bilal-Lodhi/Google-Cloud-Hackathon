@@ -991,7 +991,7 @@ Edit `hono-api/.env` with your values:
 
 ```env
 # REQUIRED: Your GCP project ID
-GCP_PROJECT_ID=webscraping-464710
+GCP_PROJECT_ID=YOUR_PROJECT_ID
 
 # Vertex AI regional endpoint — use "global" for Gemini 3 Flash Preview
 GCP_LOCATION=global
