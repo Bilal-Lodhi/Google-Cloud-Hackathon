@@ -55,7 +55,7 @@ try {
 
 Write-Host ''
 Write-Host '=== 4/12: POST /api/v1/generate ===' -ForegroundColor Cyan
-Write-Host '  ⏱  This calls Gemini — may take 10-30 seconds...' -ForegroundColor DarkYellow
+Write-Host '  ⏱  This calls Gemini — may take 20-60 seconds...' -ForegroundColor DarkYellow
 try {
   $body = '{"prompt":"Generate a compliance audit for cross-border SWIFT transfer monitoring covering AML and KYC mandates","roleContext":"swift-gateway","problemCount":5,"difficultyMix":{"beginner":0.33,"intermediate":0.34,"advanced":0.33}}'
   $r = Invoke-RestMethod -Method POST -ContentType 'application/json' -Body $body -Uri "$BaseUrl/api/v1/generate" -TimeoutSec 120
