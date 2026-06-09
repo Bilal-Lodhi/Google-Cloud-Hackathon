@@ -31,8 +31,9 @@ COPY hono-api/src    ./hono-api/src
 COPY mcp-server/src  ./mcp-server/src
 
 # Build both workspaces to dist/ (each workspace has its own tsconfig.json)
-RUN npx -w hono-api   tsc -p hono-api/tsconfig.json   --outDir hono-api/dist   || echo "[WARN] hono-api build completed with notes"
-RUN npx -w mcp-server tsc -p mcp-server/tsconfig.json --outDir mcp-server/dist || echo "[WARN] mcp-server build completed with notes"
+# Using cd instead of -w because npx workspace resolution is unreliable in Docker
+RUN cd hono-api   && npx tsc --outDir dist   || echo "[WARN] hono-api build completed with notes"
+RUN cd mcp-server && npx tsc --outDir dist   || echo "[WARN] mcp-server build completed with notes"
 
 # Verify dist output exists
 RUN test -f hono-api/dist/index.js   || (echo "ERROR: hono-api/dist/index.js not found" && exit 1)
@@ -46,8 +47,8 @@ FROM node:22-alpine AS runtime
 
 # ── A. System hardening ────────────────────────────────────────────────────────
 RUN apk add --no-cache \
-    dumb-init=1.2.5-r3 \
-    curl=8.14.1-r0 \
+    dumb-init \
+    curl \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user (Cloud Run best practice)
