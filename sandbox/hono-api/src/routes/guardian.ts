@@ -256,9 +256,9 @@ guardianRouter.post("/ingest", async (c) => {
         const keystrokePenalty = hasAnomalousKeystrokes(session.keystrokeDeltas) ? 12 : 0;
 
         const behavioralBoost = pastePenalty + tabPenalty + copyPenalty + fsPenalty + keystrokePenalty;
-        // Blend: 60% Gemini score + 40% behavioral boost, capped at 100
+        // Blend: 85% Gemini score + 15% behavioral boost, capped at 100
         const blendedScore = Math.min(
-          Math.round(geminiScore * 0.6 + behavioralBoost * 0.4),
+          Math.round(geminiScore * 0.85 + behavioralBoost * 0.15),
           100
         );
         riskPayload.overallRiskScore = blendedScore;

@@ -1,5 +1,5 @@
-/** * Cerberus FinSec — Ultra-Resilient Gemini 3 Flash Preview Client
- * Google Cloud Financial Services Track — Hackathon 2026
+/** * Cerberus FinSec ÔÇö Ultra-Resilient Gemini 3 Flash Preview Client
+ * Google Cloud Financial Services Track ÔÇö Hackathon 2026
  *
  * Primary backend: Vertex AI via @google/genai SDK + ADC.
  * Retry loop (max 3 attempts) with exponential backoff + jitter.
@@ -25,9 +25,9 @@ import type {
   RiskAssessmentPayload,
 } from "../types.js";
 
-// ═══════════════════════════════════════════════════════════════════
-// @google/genai SDK — lazy-loaded for fast cold starts
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+// @google/genai SDK ÔÇö lazy-loaded for fast cold starts
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 let _GoogleGenAI: typeof import("@google/genai").GoogleGenAI | null = null;
 let _HarmCategory: typeof import("@google/genai").HarmCategory | null = null;
@@ -52,9 +52,9 @@ async function loadGenAISDK() {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 // Helper: safely extract an array from parsed JSON
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 function safeArray(raw: unknown): Array<Record<string, unknown>> {
   return Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
@@ -66,16 +66,16 @@ function safeStringArray(raw: unknown): string[] {
     : [];
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 // Constants
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 1000;
 
-// ═══════════════════════════════════════════════════════════════════
-// GeminiClient — Elite CISO Agent for Financial Compliance
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+// GeminiClient ÔÇö Elite CISO Agent for Financial Compliance
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 export class GeminiClient {
   private readonly projectId: string;
@@ -92,15 +92,15 @@ export class GeminiClient {
     this.temperature = config.gemini.temperature;
 
     console.log(
-      `[Cerberus FinSec CISO Agent] Initialized → model="${this.model}" ` +
+      `[Cerberus FinSec CISO Agent] Initialized ÔåÆ model="${this.model}" ` +
         `project="${this.projectId}" location="${this.location}" ` +
         `maxOutputTokens=${this.maxOutputTokens} temp=${this.temperature}`
     );
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   // Public: classifyComplianceIntent
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
   async classifyAssessmentIntent(
     prompt: string,
@@ -121,7 +121,6 @@ export class GeminiClient {
     );
     const systemInstruction = this.buildClassifierSystemInstruction();
     const userMessage = this.buildClassifierUserMessage(prompt, roleContext);
-    // Classifier keeps strict safety — BLOCK_MEDIUM_AND_ABOVE
     const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal);
     const verdict = this.parseClassifierResponse(responseText);
     console.log(
@@ -131,9 +130,9 @@ export class GeminiClient {
     return verdict;
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   // Public: generateComplianceMatrix
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
   async generateComplianceMatrix(
     prompt: string,
@@ -152,20 +151,19 @@ export class GeminiClient {
     };
     const systemInstruction = this.buildOrchestratorSystemInstruction(orchestratorPrompt);
     const userMessage = this.buildOrchestratorUserMessage(orchestratorPrompt);
-    // Matrix generation needs relaxed safety to produce realistic threat vectors
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal, true);
+    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal);
     const matrix = this.parseComplianceMatrixResponse(responseText);
     console.log(
-      `[Cerberus FinSec CISO] [generateComplianceMatrix] Matrix parsed → ` +
+      `[Cerberus FinSec CISO] [generateComplianceMatrix] Matrix parsed ÔåÆ ` +
         `${matrix.threatVectors.length} threat vectors, ` +
         `${matrix.regulatoryMandates.length} regulatory mandates`
     );
     return matrix;
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   // Public: analyzeInsiderRisk
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
   async analyzeSuspicion(
     currentCode: string,
@@ -184,8 +182,7 @@ export class GeminiClient {
     const userMessage = this.buildGuardianUserMessage(
       currentCode, pasteContents, keystrokeMetrics, referenceCompletions
     );
-    // Suspicion analysis needs relaxed safety to properly detect insider threats
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, undefined, true);
+    const responseText = await this.sendVertexMessage(systemInstruction, userMessage);
     const payload = this.parseRiskResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [analyzeInsiderRisk] Risk score=${payload.overallRiskScore} flags=${payload.flags.length}`
@@ -193,15 +190,14 @@ export class GeminiClient {
     return payload;
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   // Vertex AI SDK Call (with Retry) via @google/genai
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
   private async sendVertexMessage(
     systemInstruction: string,
     userMessage: string,
     signal?: AbortSignal,
-    useRelaxedSafety = false,
   ): Promise<string> {
     if (signal?.aborted) {
       throw new Error("Compliance matrix generation cancelled by user");
@@ -212,23 +208,6 @@ export class GeminiClient {
       project: this.projectId,
       location: this.location,
     });
-
-    // Build safety settings once — classifier uses stricter thresholds,
-    // suspicion analysis and compliance matrix generation use relaxed ones.
-    const safetySettings = useRelaxedSafety
-      ? [
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        ]
-      : [
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-        ];
-
     let lastError: Error | null = null;
     let skipResponseMimeType = false;
     let consecutiveEmpties = 0;
@@ -239,7 +218,7 @@ export class GeminiClient {
       try {
         const useJsonMimeType = !skipResponseMimeType;
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} — ` +
+          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} ÔÇö ` +
             `Dispatching to model "${this.model}" responseMimeType=${useJsonMimeType ? '"application/json"' : "omitted"}...`
         );
         const startMs = Date.now();
@@ -256,19 +235,36 @@ export class GeminiClient {
             topP: 0.95,
             topK: 40,
             ...(useJsonMimeType ? { responseMimeType: "application/json" } : {}),
-            safetySettings: safetySettings,
+            safetySettings: [
+              {
+                category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+            ],
           },
         });
         const elapsedMs = Date.now() - startMs;
         const text = result.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
+          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed ÔÇö ` +
             `elapsed=${elapsedMs}ms textLength=${text?.length ?? 0}`
         );
         if (!text || text.trim().length === 0) {
           consecutiveEmpties++;
           if (useJsonMimeType && !skipResponseMimeType) {
-            // First time empty with responseMimeType — try once without it
+            // First time empty with responseMimeType ÔÇö try once without it
             const retryStart = Date.now();
             const retryResult = await ai.models.generateContent({
               model: this.model,
@@ -282,13 +278,30 @@ export class GeminiClient {
                 maxOutputTokens: this.maxOutputTokens,
                 topP: 0.95,
                 topK: 40,
-                safetySettings: safetySettings,
+                safetySettings: [
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                ],
               },
             });
             const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
             const retryElapsed = Date.now() - retryStart;
             console.log(
-              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) — ` +
+              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) ÔÇö ` +
                 `elapsed=${retryElapsed}ms textLength=${retryText.length}`
             );
             if (retryText && retryText.trim().length > 0) return retryText;
@@ -330,18 +343,35 @@ export class GeminiClient {
                 topP: 0.95,
                 topK: 40,
                 responseMimeType: "application/json",
-                safetySettings: safetySettings,
+                safetySettings: [
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                  },
+                ],
               },
             });
             const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
             const fbElapsed = Date.now() - fbStart;
             console.log(
-              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
+              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed ÔÇö ` +
                 `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
             );
             if (fbText && fbText.trim().length > 0) return fbText;
           } catch (_fbErr) {
-            // Silently swallow — the main retry loop will handle it
+            // Silently swallow ÔÇö the main retry loop will handle it
           }
         }
 
@@ -363,7 +393,7 @@ export class GeminiClient {
       }
     }
 
-    // ── final fallback: all gemini-3 attempts exhausted with empty responses ──
+    // ÔöÇÔöÇ final fallback: all gemini-3 attempts exhausted with empty responses ÔöÇÔöÇ
     // Try gemini-2.5-flash in us-central1.
     if (this.model.includes("gemini-3") && (lastError?.message.includes("empty") || consecutiveEmpties > 0)) {
       try {
@@ -386,19 +416,36 @@ export class GeminiClient {
             topP: 0.95,
             topK: 40,
             responseMimeType: "application/json",
-            safetySettings: safetySettings,
+            safetySettings: [
+              {
+                category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+              {
+                category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+              },
+            ],
           },
         });
         const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         const fbElapsed = Date.now() - fbStart;
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt 3/${MAX_RETRIES} completed — ` +
+          `[Cerberus FinSec CISO] [Vertex] Attempt 3/${MAX_RETRIES} completed ÔÇö ` +
             `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
         );
         if (fbText && fbText.trim().length > 0) return fbText;
         lastError = new Error("Vertex AI returned empty response text");
       } catch (_fbErr) {
-        // Silently swallow — throw the original error below
+        // Silently swallow ÔÇö throw the original error below
       }
     }
 
@@ -407,9 +454,9 @@ export class GeminiClient {
     );
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   // Response Parsers
-  // ───────────────────────────────────────────────────────────────
+  // ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
   private parseComplianceMatrixResponse(rawText: string): GeneratedComplianceMatrix {
     let jsonText = rawText.trim();
@@ -433,7 +480,7 @@ export class GeminiClient {
 
     const metadata = parsed["metadata"] as Record<string, unknown> | undefined;
 
-    // Safely extract top-level arrays — Gemini sometimes returns strings
+    // Safely extract top-level arrays ÔÇö Gemini sometimes returns strings
     // instead of arrays, which would crash Flutter's Map<String,dynamic> cast.
     const threatVectorsRaw = safeArray(parsed["threatVectors"]) 
       ?? safeArray(parsed["threat_vectors"])
@@ -489,7 +536,7 @@ export class GeminiClient {
       name: (rm["name"] as string) ?? "Unnamed Mandate",
       description: (rm["description"] as string) ?? "",
       weight: (rm["weight"] as number) ?? 0,
-      // SAFETY: subMandates must be an array — if Gemini returns a string like
+      // SAFETY: subMandates must be an array ÔÇö if Gemini returns a string like
       // "Req 3.4 (Encryption)" we default to [] to prevent Flutter crash.
       subMandates: safeArray(rm["subMandates"] ?? rm["sub_mandates"] ?? rm["subCompetencies"]) as unknown as RegulatoryMandate[],
       regulationCode:
@@ -645,16 +692,16 @@ export class GeminiClient {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // CISO AGENT SYSTEM INSTRUCTIONS — Financial Services Domain
-  // ═══════════════════════════════════════════════════════════════════
+  // ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+  // CISO AGENT SYSTEM INSTRUCTIONS ÔÇö Financial Services Domain
+  // ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
   private buildClassifierSystemInstruction(): string {
     return `You are an elite automated Chief Information Security Officer (CISO) agent specialized in banking regulations and financial services compliance. Your role is to classify incoming user requests to determine whether they are appropriate, meaningful, and related to compliance audit or threat matrix generation.
 
 You are the SOLE gatekeeper with THREE duties:
 
-1. CONTENT APPROPRIATENESS — Reject ANY input that contains:
+1. CONTENT APPROPRIATENESS ÔÇö Reject ANY input that contains:
    - Profanity, vulgarity, obscenities, or offensive slurs (of any language)
    - Hate speech, discriminatory language, or harassment
    - Sexually explicit or lewd content
@@ -662,11 +709,11 @@ You are the SOLE gatekeeper with THREE duties:
    - Keyboard mashing / gibberish (e.g., "asdfghjkl", "aaaaaa", random character spam)
    - Single words, casual greetings ("hi", "hello", "what's up"), or non-sequiturs
 
-2. INPUT MEANINGFULNESS — The input must form coherent sentences with clear intent.
+2. INPUT MEANINGFULNESS ÔÇö The input must form coherent sentences with clear intent.
    Mark isInputMeaningful=false for: single words, random characters, greetings,
    empty/whitespace-only, or text with >50% non-alphabetic noise.
 
-3. COMPLIANCE RELEVANCE — Valid prompts describe:
+3. COMPLIANCE RELEVANCE ÔÇö Valid prompts describe:
    - Target systems (Core Trading Ledger, SWIFT Gateway, HFT Desk, etc.)
    - Regulatory mandates (AML, SOX Compliance, GDPR, FINRA Audit, etc.)
    - Threat vectors (token injection, transfer interception, data exfiltration)
@@ -677,7 +724,7 @@ Respond STRICTLY with a single JSON object:
   "isInputMeaningful": boolean,
   "isAssessmentRelated": boolean,
   "isAppropriate": boolean,
-  "contentFlags": ["string array of detected issues — use PROFANITY, VULGARITY, HATE_SPEECH, SEXUALLY_EXPLICIT, GIBBERISH, KEYBOARD_MASHING, OFF_TOPIC, GREETING_ONLY, EMPTY_INPUT, or empty array if clean"],
+  "contentFlags": ["string array of detected issues ÔÇö use PROFANITY, VULGARITY, HATE_SPEECH, SEXUALLY_EXPLICIT, GIBBERISH, KEYBOARD_MASHING, OFF_TOPIC, GREETING_ONLY, EMPTY_INPUT, or empty array if clean"],
   "reason": "string explaining the classification verdict",
   "confidence": number (0-1),
   "detectedDomain": "string (e.g. financial_services, healthcare, unknown)",
@@ -687,7 +734,7 @@ Respond STRICTLY with a single JSON object:
 CRITICAL: If contentFlags is non-empty and contains PROFANITY, VULGARITY, HATE_SPEECH, SEXUALLY_EXPLICIT, GIBBERISH, or KEYBOARD_MASHING, then isAppropriate MUST be false.
 If isAppropriate is false, the request MUST be rejected regardless of isAssessmentRelated.
 
-Never include markdown fences or extra text — raw JSON only.`;
+Never include markdown fences or extra text ÔÇö raw JSON only.`;
   }
 
   private buildClassifierUserMessage(prompt: string, roleContext: string): string {
@@ -784,11 +831,11 @@ Your output MUST be rigorous JSON following this schema:
 }
 
 CRITICAL RULES:
-1. Use financial domain terminology — Core Trading Ledger, SWIFT Gateway, HFT Desk, etc.
-2. Include realistic starterCode in each threat vector — this is production banking code the employee must modify.
+1. Use financial domain terminology ÔÇö Core Trading Ledger, SWIFT Gateway, HFT Desk, etc.
+2. Include realistic starterCode in each threat vector ÔÇö this is production banking code the employee must modify.
 3. Map each threat vector to a real regulatory mandate (AML, SOX, GDPR, FINRA, etc.)
 4. Set meaningful antiExfiltrationThresholds for each penetration scenario.
-5. Response MUST be raw JSON only — no markdown fences, no explanatory text.
+5. Response MUST be raw JSON only ÔÇö no markdown fences, no explanatory text.
 6. The difficulty distribution should be: ~${Math.round(op.difficultyMix.beginner * 100)}% low severity, ~${Math.round(op.difficultyMix.intermediate * 100)}% medium, ~${Math.round(op.difficultyMix.advanced * 100)}% critical/high.`;
   }
 
@@ -803,7 +850,7 @@ Produce the full JSON compliance matrix now.`;
   }
 
   private buildGuardianSystemInstruction(): string {
-    return `You are the Cerberus FinSec Guardian — an elite automated CISO agent monitoring a LIVE employee terminal session for insider threat indicators.
+    return `You are the Cerberus FinSec Guardian ÔÇö an elite automated CISO agent monitoring a LIVE employee terminal session for insider threat indicators.
 
 Your task: analyze the provided telemetry and determine if the employee is exhibiting data exfiltration behavior.
 
@@ -901,9 +948,9 @@ ${refStr}
 Determine risk level and produce the JSON risk assessment payload.`;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
   // Utility Helpers
-  // ═══════════════════════════════════════════════════════════════════
+  // ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -970,9 +1017,9 @@ Determine risk level and produce the JSON risk assessment payload.`;
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 // Singleton accessor
-// ═══════════════════════════════════════════════════════════════════
+// ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 let _singleton: GeminiClient | null = null;
 
