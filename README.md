@@ -286,21 +286,37 @@ npm install
 ### 2. Configure Environment
 
 ```bash
+cp sandbox/.env.example sandbox/.env
 cp sandbox/hono-api/.env.example sandbox/hono-api/.env
 cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
-# Edit sandbox/hono-api/.env with your GCP_PROJECT_ID, GCP_LOCATION, and MONGODB_URI
+# Edit sandbox/.env with your MONGODB_URI, GEMINI_API_KEY, and GCP_PROJECT_ID
+# Edit sandbox/hono-api/.env with your MONGODB_URI, GEMINI_API_KEY, and GCP_PROJECT_ID
 # Edit sandbox/mcp-server/.env with your MONGODB_URI
 ```
+
+> **🔑 For Judges: Two Authentication Options — AI Studio RECOMMENDED**
+> 
+> Cerberus FinSec supports **two** Gemini authentication methods. You can use either
+> one and the app will work perfectly — but we **strongly recommend Option A**:
+> 
+> | Option | Method | Setup | Reliability |
+> |--------|--------|-------|-------------|
+> | **A (RECOMMENDED)** | **Google AI Studio API Key** | Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → set `GEMINI_API_KEY` in `.env` | ✅ Works out of the box with `gemini-3-flash-preview` |
+> | **B** | **Vertex AI** (GCP Project + ADC) | Set `GCP_PROJECT_ID` + `GCP_LOCATION=global` in `.env` + run `gcloud auth application-default login` | ⚠️ `gemini-3-flash-preview` may not be available on Vertex AI in all regions. Using `GCP_LOCATION=global` can fail with 404 errors during preview phases. |
+> 
+> **Priority:** If `GEMINI_API_KEY` is set, it takes precedence over Vertex AI/ADC.
+> Both paths provide identical model capabilities. On Cloud Run, ADC is auto-injected
+> by the GCP metadata server unless `GEMINI_API_KEY` is explicitly set.
+
+> **💡 Recommendation**: Use **Option A (AI Studio key)**. It's free, requires no GCP
+> project setup, and `gemini-3-flash-preview` works reliably. Option B (Vertex AI) is
+> available as a fallback but may fail due to regional model availability restrictions
+> during the preview period. The Gemini client auto-detects which auth method to use.
 
 See `.env.example` for all available options including `GCP_LOCATION`
 (default: `global`), `GEMINI_REQUEST_TIMEOUT_MS` (default 90s), and data exfiltration
 thresholds.
 
-> **🔐 Authentication**: No API key is required. Cerberus FinSec authenticates via
-> **Application Default Credentials (ADC)**. Run `gcloud auth application-default login`
-> once on your machine. On Cloud Run, ADC is auto-injected by the GCP metadata
-> server. See the [Vertex AI Setup Guide](#-vertex-ai-setup-for-judges--cloners)
-> below for one-shot configuration.
 
 ### 3. Set Up MongoDB Indexes (Required for Performance)
 

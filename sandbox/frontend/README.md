@@ -124,8 +124,29 @@ lib/
 ```bash
 cd sandbox/frontend
 flutter pub get
-flutter run -d chrome  # Or use your preferred device
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
 ```
+
+> **🔐 For Judges: Two Authentication Options — AI Studio Key Recommended**
+>
+> The backend API supports **two** Gemini authentication methods. **Option A (AI Studio API key)
+> is strongly recommended** for judging because `gemini-3-flash-preview` is not yet available on
+> Vertex AI in all regions, and using `GCP_LOCATION=global` on Vertex AI can fail with 404 errors
+> during the preview phase.
+>
+> **Option A — AI Studio API Key (RECOMMENDED ✅):**
+> 1. Get a free API key at [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+> 2. Set `GEMINI_API_KEY=your-key-here` in `sandbox/hono-api/.env`
+> 3. That's it — no `gcloud` CLI, no ADC, no GCP project needed
+> 4. Start the backend and the dashboard will work immediately
+>
+> **Option B — Vertex AI via ADC (falls back if no API key is set):**
+> 1. Run `gcloud auth application-default login` once on your machine
+> 2. Set `GCP_PROJECT_ID` and `GCP_LOCATION=global` in `sandbox/hono-api/.env`
+> 3. ⚠️ `gemini-3-flash-preview` may not be available; the app auto-falls back to `gemini-2.5-flash`
+>
+> **Priority:** If `GEMINI_API_KEY` is set, it takes precedence over Vertex AI/ADC.
+> The frontend requires no code changes — all auth is handled server-side by the Hono API.
 
 The dashboard connects to the Hono API backend. Configure the API base URL in
 `lib/services/api_service.dart` if not running on `localhost:8080`.

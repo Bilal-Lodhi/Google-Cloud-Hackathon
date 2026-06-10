@@ -277,10 +277,33 @@ npm install
 ### 2. Configure Environment
 
 ```bash
+cp sandbox/.env.example sandbox/.env
 cp sandbox/hono-api/.env.example sandbox/hono-api/.env
 cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
-# Edit both .env files with your GCP_PROJECT_ID, GCP_LOCATION, and MONGODB_URI
+# Edit sandbox/.env with your MONGODB_URI, GEMINI_API_KEY, and GCP_PROJECT_ID
+# Edit sandbox/hono-api/.env with your GEMINI_API_KEY (recommended) or GCP_PROJECT_ID + GCP_LOCATION
+# Edit sandbox/mcp-server/.env with your MONGODB_URI
 ```
+
+> **🔐 For Judges: Two Authentication Options — AI Studio Key Recommended**
+>
+> Cerberus FinSec supports **two** Gemini authentication methods. **Option A (AI Studio API key)
+> is strongly recommended** for judging because `gemini-3-flash-preview` is not yet available on
+> Vertex AI in all regions, and using `GCP_LOCATION=global` on Vertex AI can fail with 404 errors
+> during the preview phase.
+>
+> **Option A — AI Studio API Key (RECOMMENDED ✅):**
+> 1. Get a free API key at [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+> 2. Set `GEMINI_API_KEY=your-key-here` in `sandbox/hono-api/.env`
+> 3. That's it — no `gcloud` CLI, no ADC, no GCP project needed
+>
+> **Option B — Vertex AI via ADC (falls back if no API key is set):**
+> 1. Run `gcloud auth application-default login` once on your machine
+> 2. Set `GCP_PROJECT_ID` and `GCP_LOCATION=global` in `sandbox/hono-api/.env`
+> 3. ⚠️ `gemini-3-flash-preview` may not be available; the app auto-falls back to `gemini-2.5-flash`
+>
+> **Priority:** If `GEMINI_API_KEY` is set, it takes precedence over Vertex AI/ADC.
+> Both paths provide identical model capabilities.
 
 Key configuration options in `.env.example`:
 
