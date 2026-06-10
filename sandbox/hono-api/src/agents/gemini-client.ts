@@ -1,7 +1,8 @@
 /** * Cerberus FinSec — Ultra-Resilient Gemini 3 Flash Preview Client
  * Google Cloud Financial Services Track — Hackathon 2026
  *
- * Primary backend: Vertex AI via @google/genai SDK + ADC.
+ * Primary backend: Gemini API (free tier) via @google/genai SDK.
+ * Falls back to Vertex AI if no API key is provided.
  * Retry loop (max 3 attempts) with exponential backoff + jitter.
  * Exclusive use of the mandated model: gemini-3-flash-preview.
  *
@@ -78,22 +79,29 @@ const BASE_BACKOFF_MS = 1000;
 // ═══════════════════════════════════════════════════════════════════
 
 export class GeminiClient {
+  private readonly apiKey: string;
   private readonly projectId: string;
   private readonly location: string;
   private readonly model: string;
   private readonly maxOutputTokens: number;
   private readonly temperature: number;
+  private readonly useGeminiApi: boolean;
 
   constructor(config: AppConfig) {
+    this.apiKey = config.gemini.apiKey;
     this.projectId = config.gemini.projectId;
     this.location = config.gemini.location;
     this.model = config.gemini.model;
     this.maxOutputTokens = config.gemini.maxOutputTokens;
     this.temperature = config.gemini.temperature;
+    this.useGeminiApi = !!this.apiKey;
 
     console.log(
       `[Cerberus FinSec CISO Agent] Initialized → model="${this.model}" ` +
-        `project="${this.projectId}" location="${this.location}" ` +
+        `backend="${this.useGeminiApi ? "Gemini API" : "Vertex AI"}" ` +
+        (this.useGeminiApi
+          ? `apiKey=${this.apiKey.substring(0, 8)}... `
+          : `project="${this.projectId}" location="${this.location}" `) +
         `maxOutputTokens=${this.maxOutputTokens} temp=${this.temperature}`
     );
   }
@@ -122,7 +130,7 @@ export class GeminiClient {
     const systemInstruction = this.buildClassifierSystemInstruction();
     const userMessage = this.buildClassifierUserMessage(prompt, roleContext);
     // Classifier keeps strict safety — BLOCK_MEDIUM_AND_ABOVE
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal);
+    const responseText = await this.sendMessage(systemInstruction, userMessage, signal);
     const verdict = this.parseClassifierResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [classifyComplianceIntent] Verdict: ` +
@@ -153,7 +161,7 @@ export class GeminiClient {
     const systemInstruction = this.buildOrchestratorSystemInstruction(orchestratorPrompt);
     const userMessage = this.buildOrchestratorUserMessage(orchestratorPrompt);
     // Matrix generation needs relaxed safety to produce realistic threat vectors
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, signal, true);
+    const responseText = await this.sendMessage(systemInstruction, userMessage, signal, true);
     const matrix = this.parseComplianceMatrixResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [generateComplianceMatrix] Matrix parsed → ` +
@@ -185,7 +193,7 @@ export class GeminiClient {
       currentCode, pasteContents, keystrokeMetrics, referenceCompletions
     );
     // Suspicion analysis needs relaxed safety to properly detect insider threats
-    const responseText = await this.sendVertexMessage(systemInstruction, userMessage, undefined, true);
+    const responseText = await this.sendMessage(systemInstruction, userMessage, undefined, true);
     const payload = this.parseRiskResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [analyzeInsiderRisk] Risk score=${payload.overallRiskScore} flags=${payload.flags.length}`
@@ -194,10 +202,11 @@ export class GeminiClient {
   }
 
   // ───────────────────────────────────────────────────────────────
-  // Vertex AI SDK Call (with Retry) via @google/genai
+  // Gemini SDK Call (with Retry) via @google/genai
+  // Supports both Gemini API (apiKey) and Vertex AI (project/location).
   // ───────────────────────────────────────────────────────────────
 
-  private async sendVertexMessage(
+  private async sendMessage(
     systemInstruction: string,
     userMessage: string,
     signal?: AbortSignal,
@@ -207,11 +216,18 @@ export class GeminiClient {
       throw new Error("Compliance matrix generation cancelled by user");
     }
     const { GoogleGenAI, HarmCategory, HarmBlockThreshold } = await loadGenAISDK();
-    const ai = new GoogleGenAI({
-      vertexai: true,
-      project: this.projectId,
-      location: this.location,
-    });
+
+    // Build the SDK client based on available credentials
+    const createClient = () =>
+      this.useGeminiApi
+        ? new GoogleGenAI({ apiKey: this.apiKey })
+        : new GoogleGenAI({
+            vertexai: true,
+            project: this.projectId,
+            location: this.location,
+          });
+
+    const ai = createClient();
 
     // Build safety settings once — classifier uses stricter thresholds,
     // suspicion analysis and compliance matrix generation use relaxed ones.
@@ -229,6 +245,8 @@ export class GeminiClient {
           { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
         ];
 
+    const backendLabel = this.useGeminiApi ? "Gemini API" : "Vertex";
+
     let lastError: Error | null = null;
     let skipResponseMimeType = false;
     let consecutiveEmpties = 0;
@@ -239,7 +257,7 @@ export class GeminiClient {
       try {
         const useJsonMimeType = !skipResponseMimeType;
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} — ` +
+          `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} — ` +
             `Dispatching to model "${this.model}" responseMimeType=${useJsonMimeType ? '"application/json"' : "omitted"}...`
         );
         const startMs = Date.now();
@@ -254,7 +272,6 @@ export class GeminiClient {
             temperature: this.temperature,
             maxOutputTokens: this.maxOutputTokens,
             topP: 0.95,
-            topK: 40,
             ...(useJsonMimeType ? { responseMimeType: "application/json" } : {}),
             safetySettings: safetySettings,
           },
@@ -262,7 +279,7 @@ export class GeminiClient {
         const elapsedMs = Date.now() - startMs;
         const text = result.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
+          `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
             `elapsed=${elapsedMs}ms textLength=${text?.length ?? 0}`
         );
         if (!text || text.trim().length === 0) {
@@ -281,27 +298,26 @@ export class GeminiClient {
                 temperature: this.temperature,
                 maxOutputTokens: this.maxOutputTokens,
                 topP: 0.95,
-                topK: 40,
                 safetySettings: safetySettings,
               },
             });
             const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
             const retryElapsed = Date.now() - retryStart;
             console.log(
-              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) — ` +
+              `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) — ` +
                 `elapsed=${retryElapsed}ms textLength=${retryText.length}`
             );
             if (retryText && retryText.trim().length > 0) return retryText;
             consecutiveEmpties++;
           }
           skipResponseMimeType = true;
-          lastError = new Error("Vertex AI returned empty response text");
+          lastError = new Error(`${backendLabel} returned empty response text`);
           continue;
         }
         return text;
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[Cerberus FinSec CISO] [Vertex] Attempt ${attempt} FAILED: ${errMsg}`);
+        console.error(`[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt} FAILED: ${errMsg}`);
         lastError = error instanceof Error ? error : new Error(errMsg);
         consecutiveEmpties = 0;
 
@@ -312,12 +328,14 @@ export class GeminiClient {
         if ((isNotFound || isAuthError || isResourceExhausted) && this.model.includes("gemini-3")) {
           try {
             const fbStart = Date.now();
-            const regionalAi = new GoogleGenAI({
-              vertexai: true,
-              project: this.projectId,
-              location: "us-central1",
-            });
-            const fbResult = await regionalAi.models.generateContent({
+            const fbClient = this.useGeminiApi
+              ? new GoogleGenAI({ apiKey: this.apiKey })
+              : new GoogleGenAI({
+                  vertexai: true,
+                  project: this.projectId,
+                  location: "us-central1",
+                });
+            const fbResult = await fbClient.models.generateContent({
               model: "gemini-2.5-flash",
               contents: [{ role: "user", parts: [{ text: userMessage }] }],
               config: {
@@ -328,7 +346,6 @@ export class GeminiClient {
                 temperature: this.temperature,
                 maxOutputTokens: this.maxOutputTokens,
                 topP: 0.95,
-                topK: 40,
                 responseMimeType: "application/json",
                 safetySettings: safetySettings,
               },
@@ -336,7 +353,7 @@ export class GeminiClient {
             const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
             const fbElapsed = Date.now() - fbStart;
             console.log(
-              `[Cerberus FinSec CISO] [Vertex] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
+              `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
                 `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
             );
             if (fbText && fbText.trim().length > 0) return fbText;
@@ -357,23 +374,25 @@ export class GeminiClient {
       if (attempt < MAX_RETRIES) {
         const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 500;
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Backing off ${Math.round(delay)}ms before attempt ${attempt + 1}`
+          `[Cerberus FinSec CISO] [${backendLabel}] Backing off ${Math.round(delay)}ms before attempt ${attempt + 1}`
         );
         await this.sleep(delay);
       }
     }
 
     // ── final fallback: all gemini-3 attempts exhausted with empty responses ──
-    // Try gemini-2.5-flash in us-central1.
+    // Try gemini-2.5-flash.
     if (this.model.includes("gemini-3") && (lastError?.message.includes("empty") || consecutiveEmpties > 0)) {
       try {
         const fbStart = Date.now();
-        const regionalAi = new GoogleGenAI({
-          vertexai: true,
-          project: this.projectId,
-          location: "us-central1",
-        });
-        const fbResult = await regionalAi.models.generateContent({
+        const fbClient = this.useGeminiApi
+          ? new GoogleGenAI({ apiKey: this.apiKey })
+          : new GoogleGenAI({
+              vertexai: true,
+              project: this.projectId,
+              location: "us-central1",
+            });
+        const fbResult = await fbClient.models.generateContent({
           model: "gemini-2.5-flash",
           contents: [{ role: "user", parts: [{ text: userMessage }] }],
           config: {
@@ -384,7 +403,6 @@ export class GeminiClient {
             temperature: this.temperature,
             maxOutputTokens: this.maxOutputTokens,
             topP: 0.95,
-            topK: 40,
             responseMimeType: "application/json",
             safetySettings: safetySettings,
           },
@@ -392,18 +410,18 @@ export class GeminiClient {
         const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
         const fbElapsed = Date.now() - fbStart;
         console.log(
-          `[Cerberus FinSec CISO] [Vertex] Attempt 3/${MAX_RETRIES} completed — ` +
+          `[Cerberus FinSec CISO] [${backendLabel}] Attempt 3/${MAX_RETRIES} completed — ` +
             `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
         );
         if (fbText && fbText.trim().length > 0) return fbText;
-        lastError = new Error("Vertex AI returned empty response text");
+        lastError = new Error(`${backendLabel} returned empty response text`);
       } catch (_fbErr) {
         // Silently swallow — throw the original error below
       }
     }
 
     throw new Error(
-      `Vertex AI request failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message ?? "unknown"}`
+      `${backendLabel} request failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message ?? "unknown"}`
     );
   }
 

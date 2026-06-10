@@ -3,13 +3,15 @@
  * Uses dotenv for local development; Cloud Run injects env vars in production.
  *
  * ═══════════════════════════════════════════════════════════════════
- * VERTEX AI ONLY — Enterprise GCP Path
+ * GEMINI API — Primary Backend (Free Tier)
  * ═══════════════════════════════════════════════════════════════════
  *
- * All Gemini model calls go through the @google/genai SDK
- * (Vertex AI backend) with Application Default Credentials (ADC).
- * Requires: GCP_PROJECT_ID, GCP_LOCATION.
+ * All Gemini model calls go through the @google/genai SDK.
+ * Supports both Vertex AI (GCP_PROJECT_ID + GCP_LOCATION + ADC)
+ * and Gemini API (GEMINI_API_KEY) backends.
+ * Precedence: GEMINI_API_KEY takes priority if set.
  *
+ * Free API key: https://aistudio.google.com/apikey
  * Local ADC setup: gcloud auth application-default login
  * Cloud Run: ADC is auto-injected via the metadata server.
  */
@@ -108,7 +110,9 @@ export interface AppConfig {
 }
 
 export interface GeminiConfig {
-  /** GCP project ID (required). */
+  /** Gemini API key (aistudio.google.com). Takes priority over Vertex AI if set. */
+  apiKey: string;
+  /** GCP project ID (required for Vertex AI; optional if apiKey is set). */
   projectId: string;
   /** GCP region (e.g. "us-central1"). */
   location: string;
@@ -147,16 +151,21 @@ export interface SecurityConfig {
 export function loadConfig(): AppConfig {
   const port = parseInt(process.env["PORT"] ?? "8080", 10);
 
+  const apiKey = process.env["GEMINI_API_KEY"] ?? "";
   const projectId = process.env["GCP_PROJECT_ID"] ?? "";
   const location = process.env["GCP_LOCATION"] ?? "us-central1";
 
-  if (!projectId) {
+  if (!apiKey && !projectId) {
     console.error(
-      "[config] FATAL: GCP_PROJECT_ID is not set. " +
-        "Vertex AI requires a Google Cloud project ID. " +
-        "Set it in .env or via environment variable."
+      "[config] FATAL: Neither GEMINI_API_KEY nor GCP_PROJECT_ID is set. " +
+        "Set GEMINI_API_KEY for Gemini API (aistudio.google.com) or " +
+        "GCP_PROJECT_ID for Vertex AI."
     );
     process.exitCode = 1;
+  } else if (apiKey) {
+    console.log(
+      `[config] Gemini API → key=${apiKey.substring(0, 8)}... model="${process.env["GEMINI_MODEL"] ?? "gemini-3-flash-preview"}"`
+    );
   } else {
     console.log(
       `[config] Vertex AI → project="${projectId}" location="${location}"`
@@ -164,6 +173,7 @@ export function loadConfig(): AppConfig {
   }
 
   const gemini: GeminiConfig = {
+    apiKey,
     projectId,
     location,
     model: process.env["GEMINI_MODEL"] ?? "gemini-3-flash-preview",
