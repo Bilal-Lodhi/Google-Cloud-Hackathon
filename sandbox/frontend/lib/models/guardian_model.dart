@@ -492,6 +492,11 @@ class ReviewRecord {
   /// Alias — consumers may reference .latestSuspicion for the risk payload.
   RiskAssessmentPayload? get latestSuspicion => lastRiskPayload;
 
+  /// Whether the session is locked due to detected anomalous behavior.
+  /// The backend stores 'flagged' (set_session_status), while older code
+  /// may use 'locked'. Both are treated as locked.
+  bool get isLocked => status == 'flagged' || status == 'locked';
+
   factory ReviewRecord.fromJson(Map<String, dynamic> json) {
     return ReviewRecord(
       sessionId: json['sessionId'] as String? ?? '',

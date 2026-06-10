@@ -183,11 +183,24 @@ export class MongoStore {
       tabSwitchCount?: number;
       copyAttemptCount?: number;
       peakRiskScore?: number;
+      status?: string;
     }
   ): Promise<void> {
     await this.collection("sessions").updateOne(
       { sessionId },
       { $set: { ...counts, updatedAt: new Date() } }
+    );
+  }
+
+  /**
+   * Flips the session status in MongoDB (e.g. "active" → "locked" on high-risk
+   * detection, "locked" → "active" on safe-behavior auto-clear).
+   * Called by the Hono API through the HTTP adapter.
+   */
+  async setSessionStatus(sessionId: string, status: string): Promise<void> {
+    await this.collection("sessions").updateOne(
+      { sessionId },
+      { $set: { status, updatedAt: new Date() } }
     );
   }
 

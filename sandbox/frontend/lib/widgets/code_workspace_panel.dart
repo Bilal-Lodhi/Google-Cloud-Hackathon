@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../providers/review_provider.dart';
 import '../providers/guardian_provider.dart';
 import '../models/guardian_model.dart';
+import 'risk_notification.dart';
 
 /// ─── Cerberus FinSec — Interactive Employee Terminal Workspace ───────────────
 /// Loads financial source code (SWIFT handler, ledger logic, etc.) for the
@@ -76,6 +77,9 @@ class _CodeWorkspacePanelState extends State<CodeWorkspacePanel>
 
     final review = reviewProvider.selected;
     if (review == null) return;
+
+    // Block copy when session is locked
+    if (review.isLocked) return;
 
     // Determine text to copy: prefer current selection, fall back to all
     final selection = _codeController.selection;
@@ -489,6 +493,8 @@ void main() {
   Widget _buildInteractiveTerminal(BuildContext context) {
     final theme = Theme.of(context);
     final review = context.watch<ReviewProvider>().selected!;
+    final isLocked = review.isLocked;
+    final lastPayload = review.lastRiskPayload;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -507,7 +513,7 @@ void main() {
           child: Row(
             children: [
               // Traffic-light dots
-              _terminalDot(Colors.redAccent),
+              _terminalDot(isLocked ? Colors.red : Colors.redAccent),
               const SizedBox(width: 6),
               _terminalDot(Colors.amberAccent),
               const SizedBox(width: 6),
@@ -519,12 +525,15 @@ void main() {
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
-                    color: Colors.white70,
+                    color: isLocked ? Colors.red : Colors.white70,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (_isSending)
+              if (isLocked) ...[
+                Icon(Icons.lock, size: 16, color: Colors.red),
+                const SizedBox(width: 8),
+              ] else if (_isSending)
                 SizedBox(
                   width: 12,
                   height: 12,
@@ -540,20 +549,31 @@ void main() {
               Builder(
                 builder: (context) {
                   final guardian = context.watch<GuardianProvider>();
-                  final hasRisk =
-                      guardian.latestRiskPayload != null &&
-                      guardian.events.isNotEmpty;
-                  if (hasRisk) {
+                  final payloadToShow =
+                      lastPayload ??
+                      (guardian.latestRiskPayload != null &&
+                              guardian.events.isNotEmpty
+                          ? guardian.latestRiskPayload
+                          : null);
+                  if (payloadToShow != null) {
                     return Padding(
                       padding: const EdgeInsets.only(right: 4),
                       child: SizedBox(
                         height: 30,
                         child: ElevatedButton.icon(
-                          onPressed: () =>
-                              guardian.openLatestNotification(context),
-                          icon: const Icon(Icons.visibility, size: 14),
-                          label: const Text(
-                            'DETAILS',
+                          onPressed: () {
+                            if (lastPayload != null) {
+                              showRiskNotificationDialog(context, lastPayload);
+                            } else {
+                              guardian.openLatestNotification(context);
+                            }
+                          },
+                          icon: Icon(
+                            isLocked ? Icons.lock : Icons.visibility,
+                            size: 14,
+                          ),
+                          label: Text(
+                            isLocked ? 'LOCKED' : 'DETAILS',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 10,
@@ -575,16 +595,20 @@ void main() {
                   return const SizedBox.shrink();
                 },
               ),
-              IconButton(
-                icon: Icon(
-                  _copied ? Icons.check : Icons.copy,
-                  size: 18,
-                  color: _copied ? Colors.greenAccent : Colors.white54,
+              // Hide Copy button when locked
+              if (!isLocked)
+                IconButton(
+                  icon: Icon(
+                    _copied ? Icons.check : Icons.copy,
+                    size: 18,
+                    color: _copied ? Colors.greenAccent : Colors.white54,
+                  ),
+                  tooltip: _copied
+                      ? 'Copied to clipboard'
+                      : 'Copy selected text',
+                  onPressed: _handleCopy,
+                  visualDensity: VisualDensity.compact,
                 ),
-                tooltip: _copied ? 'Copied to clipboard' : 'Copy selected text',
-                onPressed: _handleCopy,
-                visualDensity: VisualDensity.compact,
-              ),
               const SizedBox(width: 4),
               IconButton(
                 icon: const Icon(Icons.close, size: 18, color: Colors.white54),
@@ -627,97 +651,216 @@ void main() {
           ),
         ),
 
+        // ── Lock Warning Banner ─────────────────────────────────────────
+        if (isLocked && lastPayload != null)
+          _buildLockBanner(context, lastPayload),
+
         // ── Interactive Code Editor Body ────────────────────────────────
         Expanded(
-          child: Container(
-            color: const Color(0xFF0D0D1A),
-            child: Focus(
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent || event is KeyRepeatEvent) {
-                  final isCtrlPressed =
-                      HardwareKeyboard.instance.isControlPressed;
-                  if (isCtrlPressed &&
-                      event.logicalKey == LogicalKeyboardKey.keyC) {
-                    _handleCopy();
-                    return KeyEventResult.handled;
-                  }
-                  // Detect paste via Ctrl+V / Cmd+V
-                  if (isCtrlPressed &&
-                      event.logicalKey == LogicalKeyboardKey.keyV) {
-                    // Arm the paste flag: the next onChanged will see
-                    // _isPasting == true and record the pasted block.
-                    _isPasting = true;
-                    _lastKnownTextLength = _codeController.text.length;
-                    return KeyEventResult.ignored; // let system handle paste
-                  }
-                }
-                return KeyEventResult.ignored;
-              },
-              child: TextField(
-                focusNode: _codeFocusNode,
-                controller: _codeController,
-                onChanged: (value) {
-                  // When _isPasting is armed (Ctrl+V detected), capture the
-                  // pasted content delta and then let _onCodeChanged send the
-                  // event immediately.
-                  if (_isPasting) {
-                    final newLength = value.length;
-                    final insertedLen = newLength - _lastKnownTextLength;
-                    if (insertedLen > 0) {
-                      _pasteContent = value.substring(
-                        _lastKnownTextLength,
-                        newLength,
-                      );
-                    } else {
-                      _pasteContent = '';
-                    }
-                    _lastKnownTextLength = newLength;
-                  }
-                  _onCodeChanged();
-                },
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                  height: 1.6,
-                  color: Color(0xFF00FF88), // Terminal green
-                ),
-                decoration: InputDecoration(
-                  contentPadding: const EdgeInsets.all(16),
-                  border: InputBorder.none,
-                  hintText: '// Type financial logic here...',
-                  hintStyle: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    color: Colors.white24,
+          child: Stack(
+            children: [
+              // The editor itself
+              Container(
+                color: const Color(0xFF0D0D1A),
+                child: Focus(
+                  onKeyEvent: isLocked
+                      ? (node, event) {
+                          // Block all Ctrl+C and Ctrl+V when locked
+                          if (event is KeyDownEvent ||
+                              event is KeyRepeatEvent) {
+                            final isCtrlPressed =
+                                HardwareKeyboard.instance.isControlPressed;
+                            if (isCtrlPressed &&
+                                (event.logicalKey == LogicalKeyboardKey.keyC ||
+                                    event.logicalKey ==
+                                        LogicalKeyboardKey.keyV)) {
+                              return KeyEventResult.handled;
+                            }
+                          }
+                          return KeyEventResult.ignored;
+                        }
+                      : (node, event) {
+                          if (event is KeyDownEvent ||
+                              event is KeyRepeatEvent) {
+                            final isCtrlPressed =
+                                HardwareKeyboard.instance.isControlPressed;
+                            if (isCtrlPressed &&
+                                event.logicalKey == LogicalKeyboardKey.keyC) {
+                              _handleCopy();
+                              return KeyEventResult.handled;
+                            }
+                            // Detect paste via Ctrl+V / Cmd+V
+                            if (isCtrlPressed &&
+                                event.logicalKey == LogicalKeyboardKey.keyV) {
+                              _isPasting = true;
+                              _lastKnownTextLength =
+                                  _codeController.text.length;
+                              return KeyEventResult
+                                  .ignored; // let system handle paste
+                            }
+                          }
+                          return KeyEventResult.ignored;
+                        },
+                  child: TextField(
+                    focusNode: _codeFocusNode,
+                    controller: _codeController,
+                    readOnly: isLocked,
+                    onChanged: isLocked
+                        ? null
+                        : (value) {
+                            // When _isPasting is armed (Ctrl+V detected),
+                            // capture the pasted content delta
+                            if (_isPasting) {
+                              final newLength = value.length;
+                              final insertedLen =
+                                  newLength - _lastKnownTextLength;
+                              if (insertedLen > 0) {
+                                _pasteContent = value.substring(
+                                  _lastKnownTextLength,
+                                  newLength,
+                                );
+                              } else {
+                                _pasteContent = '';
+                              }
+                              _lastKnownTextLength = newLength;
+                            }
+                            _onCodeChanged();
+                          },
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      height: 1.6,
+                      color: isLocked
+                          ? const Color(0xFF00FF88).withValues(alpha: 0.35)
+                          : const Color(0xFF00FF88), // Terminal green
+                    ),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.all(16),
+                      border: InputBorder.none,
+                      hintText: isLocked
+                          ? '// SESSION LOCKED — Terminal is read-only'
+                          : '// Type financial logic here...',
+                      hintStyle: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        color: isLocked
+                            ? Colors.red.withValues(alpha: 0.5)
+                            : Colors.white24,
+                      ),
+                    ),
+                    cursorColor: isLocked
+                        ? Colors.transparent
+                        : const Color(0xFF00FF88),
+                    keyboardType: TextInputType.multiline,
                   ),
                 ),
-                cursorColor: const Color(0xFF00FF88),
-                keyboardType: TextInputType.multiline,
               ),
-            ),
+
+              // ── Lock Overlay (semi-transparent blocking pane) ──────
+              if (isLocked)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      color: Colors.red.withValues(alpha: 0.06),
+                      alignment: Alignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.lock_outline,
+                            size: 48,
+                            color: Colors.red.withValues(alpha: 0.8),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'SESSION LOCKED',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.red.withValues(alpha: 0.9),
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'This terminal is frozen — all input and copy '
+                            'operations are blocked.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: Colors.red.withValues(alpha: 0.7),
+                            ),
+                          ),
+                          if (lastPayload != null) ...[
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              height: 36,
+                              child: ElevatedButton.icon(
+                                onPressed: () => showRiskNotificationDialog(
+                                  context,
+                                  lastPayload,
+                                ),
+                                icon: const Icon(Icons.visibility, size: 16),
+                                label: const Text(
+                                  'VIEW INCIDENT REPORT',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  elevation: 2,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
 
         // ── Status Footer ───────────────────────────────────────────────
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: const BoxDecoration(color: Color(0xFF15152A)),
+          decoration: BoxDecoration(
+            color: isLocked
+                ? Colors.red.withValues(alpha: 0.08)
+                : const Color(0xFF15152A),
+          ),
           child: Row(
             children: [
-              Icon(Icons.assignment, size: 14, color: Colors.white38),
+              Icon(
+                isLocked ? Icons.lock : Icons.assignment,
+                size: 14,
+                color: isLocked ? Colors.red : Colors.white38,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Session: ${review.sessionId.length > 8 ? '${review.sessionId.substring(0, 8)}…' : review.sessionId} | '
                   'Status: ${review.status.toUpperCase()} | '
                   'Lines: ${_codeController.text.split('\n').length}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 10,
-                    color: Colors.white38,
+                    color: isLocked ? Colors.red : Colors.white38,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -726,6 +869,85 @@ void main() {
           ),
         ),
       ],
+    );
+  }
+
+  /// Builds a compact red warning banner between the header and the editor
+  /// body when the session is locked, showing the incident summary and a
+  /// button to view full anomaly flags.
+  Widget _buildLockBanner(
+    BuildContext context,
+    RiskAssessmentPayload lastPayload,
+  ) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.red.withValues(alpha: 0.12),
+            Colors.red.withValues(alpha: 0.03),
+          ],
+        ),
+        border: Border(
+          bottom: BorderSide(color: Colors.red.withValues(alpha: 0.25)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.gpp_bad, size: 20, color: Colors.red),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '⚠️ SESSION LOCKED — Anomalous behavior detected',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  lastPayload.incidentSummary.isNotEmpty
+                      ? lastPayload.incidentSummary
+                      : 'Risk score: ${lastPayload.overallRiskScore.toStringAsFixed(0)}% with ${lastPayload.flags.length} behavioral flags.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.red.withValues(alpha: 0.85),
+                    fontSize: 11,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 32,
+            child: ElevatedButton.icon(
+              onPressed: () => showRiskNotificationDialog(context, lastPayload),
+              icon: const Icon(Icons.visibility, size: 14),
+              label: const Text(
+                'DETAILS',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 10),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                elevation: 1,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

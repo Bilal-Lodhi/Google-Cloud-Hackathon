@@ -788,9 +788,30 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isSelected = review.selected?.sessionId == session.sessionId;
     final score = session.peakRiskScore;
     final hasEvents = session.eventCount > 0;
-    final statusText = hasEvents
-        ? (session.alertTriggered ? '⚠ ALERT' : 'active')
-        : 'inactive';
+    final isLocked = session.status == 'locked';
+    final isTerminated = session.status == 'terminated';
+
+    // ── Status label with agentic state awareness ──
+    // locked   = agent auto-locked the session on high-risk detection
+    // terminated = session ended, data preserved (audit trail intact)
+    final String statusText;
+    final Color? statusColor;
+    if (isTerminated) {
+      statusText = '⛔ TERMINATED';
+      statusColor = Colors.grey;
+    } else if (isLocked) {
+      statusText = '🔒 LOCKED';
+      statusColor = Colors.red;
+    } else if (hasEvents && session.alertTriggered) {
+      statusText = '⚠ ALERT';
+      statusColor = Colors.orange;
+    } else if (hasEvents) {
+      statusText = 'active';
+      statusColor = null;
+    } else {
+      statusText = 'inactive';
+      statusColor = null;
+    }
 
     // ── Build content area (tappable) and trailing delete button ────────────
     // Uses a Card + InkWell + Row instead of ListTile to avoid Flutter's
@@ -857,8 +878,24 @@ class _DashboardScreenState extends State<DashboardScreen>
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            '${session.sessionId}\nEvents: ${session.eventCount} | $statusText',
+                          Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(text: '${session.sessionId}\n'),
+                                TextSpan(
+                                  text: 'Events: ${session.eventCount} | ',
+                                ),
+                                TextSpan(
+                                  text: statusText,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color:
+                                        statusColor ??
+                                        theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
                             style: theme.textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                             maxLines: 2,

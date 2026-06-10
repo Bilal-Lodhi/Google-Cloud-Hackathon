@@ -84,18 +84,29 @@ const tools: Record<string, ToolHandler> = {
 
   update_session_counts: async (body) => {
     const sessionId = body["sessionId"] as string;
-    const counts = body["counts"] as Record<string, number>;
+    const counts = body["counts"] as Record<string, unknown>;
     if (!sessionId) throw new Error("Missing required parameter: sessionId");
     if (!counts || typeof counts !== "object")
       throw new Error("Missing required parameter: counts");
     await store.updateSessionCounts(sessionId, {
-      eventCount: counts.eventCount ?? 0,
-      pasteCount: counts.pasteCount,
-      tabSwitchCount: counts.tabSwitchCount,
-      copyAttemptCount: counts.copyAttemptCount,
-      peakRiskScore: counts.peakRiskScore,
+      eventCount: (counts.eventCount as number) ?? 0,
+      pasteCount: counts.pasteCount as number | undefined,
+      tabSwitchCount: counts.tabSwitchCount as number | undefined,
+      copyAttemptCount: counts.copyAttemptCount as number | undefined,
+      peakRiskScore: counts.peakRiskScore as number | undefined,
+      status: counts.status as string | undefined,
     });
     return { success: true };
+  },
+
+  set_session_status: async (body) => {
+    const sessionId = body["sessionId"] as string;
+    const status = body["status"] as string;
+    if (!sessionId) throw new Error("Missing required parameter: sessionId");
+    if (!status || !["active", "locked", "terminated"].includes(status))
+      throw new Error("Invalid status. Must be: active, locked, or terminated");
+    await store.setSessionStatus(sessionId, status);
+    return { success: true, status };
   },
 
   get_session_review: async (body) => {

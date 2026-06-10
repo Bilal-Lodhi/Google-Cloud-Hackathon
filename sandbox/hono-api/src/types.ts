@@ -341,7 +341,7 @@ export interface ActiveSession {
   employeeId: string;
   matrixId: string;
   targetSystem: string;
-  status: "active" | "flagged" | "investigating" | "cleared";
+  status: "active" | "flagged" | "investigating" | "cleared" | "locked";
   deployedAt: string;
   riskIndex: number;
 }
@@ -352,7 +352,7 @@ export interface SessionReviewResponse {
   sessionId: string;
   employeeId: string;           // Renamed from candidateId
   auditId: string;              // Renamed from assessmentId
-  status: "active" | "flagged" | "investigating" | "cleared";
+  status: "active" | "flagged" | "investigating" | "cleared" | "locked" | "terminated";
   terminalContent: string;      // Renamed from submittedCode
   timeline: TimelineEntry[];
   riskSummary: RiskAssessmentPayload[];  // Renamed from suspicionSummary

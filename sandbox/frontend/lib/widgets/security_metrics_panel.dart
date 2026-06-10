@@ -141,6 +141,7 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
     GuardianProvider guardian,
   ) {
     final theme = Theme.of(context);
+    final isLocked = record.isLocked;
     final liveScore = guardian.events.isNotEmpty
         ? guardian.events.last.overallRiskScore
         : (record.lastRiskPayload?.overallRiskScore ?? 0.0);
@@ -154,8 +155,18 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // ═══ Anomaly Risk Index Gauge (always visible) ═══
-        _buildAnomalyGaugeCard(theme, liveScore, severity, lastPayload),
+        _buildAnomalyGaugeCard(
+          theme,
+          liveScore,
+          severity,
+          lastPayload,
+          isLocked: isLocked,
+        ),
         const Divider(height: 1),
+
+        // ═══ Lock Status Banner ═══
+        if (isLocked && lastPayload != null)
+          _buildLockStatusBanner(theme, lastPayload, context),
 
         // ═══ Scrollable Live Micro-Event Stream ═══
         Expanded(
@@ -174,6 +185,84 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
     );
   }
 
+  /// Red banner shown at the top of the metrics panel when the session is
+  /// locked, summarizing why and providing a quick DETAILS button.
+  Widget _buildLockStatusBanner(
+    ThemeData theme,
+    RiskAssessmentPayload lastPayload,
+    BuildContext context,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.red.withValues(alpha: 0.08),
+            Colors.red.withValues(alpha: 0.02),
+          ],
+        ),
+        border: Border(
+          bottom: BorderSide(color: Colors.red.withValues(alpha: 0.18)),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.gpp_bad, size: 18, color: Colors.red),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '⚠️ SESSION LOCKED — ${lastPayload.employeeDisplayName}',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  lastPayload.incidentSummary.isNotEmpty
+                      ? lastPayload.incidentSummary
+                      : 'Risk score: ${lastPayload.overallRiskScore.toStringAsFixed(0)}% with ${lastPayload.flags.length} anomaly flags.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.red.withValues(alpha: 0.85),
+                    fontSize: 11,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 30,
+            child: ElevatedButton.icon(
+              onPressed: () => showRiskNotificationDialog(context, lastPayload),
+              icon: const Icon(Icons.visibility, size: 14),
+              label: const Text(
+                'DETAILS',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 10),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                elevation: 1,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Anomaly Risk Index Circular Gauge Card
   // ═══════════════════════════════════════════════════════════════════════════
@@ -182,8 +271,9 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
     ThemeData theme,
     double score,
     String severity,
-    RiskAssessmentPayload? lastPayload,
-  ) {
+    RiskAssessmentPayload? lastPayload, {
+    bool isLocked = false,
+  }) {
     final color = _severityColor(severity, theme);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -250,12 +340,21 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'ANOMALY RISK INDEX',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                            letterSpacing: 0.8,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'ANOMALY RISK INDEX',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            if (isLocked) ...[
+                              const SizedBox(width: 8),
+                              Icon(Icons.lock, size: 14, color: Colors.red),
+                            ],
+                          ],
                         ),
                         _severityBadge(theme, severity),
                       ],
@@ -482,6 +581,38 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
                 ),
               ],
             ),
+            // Anomaly flag pills — visible for risk assessment entries
+            if (hasPayload && entry.riskPayload!.flags.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: entry.riskPayload!.flags.map((flag) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _flagColor(flag.category).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _flagColor(flag.category).withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Text(
+                      flag.description,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: _flagColor(flag.category),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+
             // DETAILS button for risk assessment entries
             if (hasPayload) ...[
               const SizedBox(height: 8),
@@ -589,6 +720,34 @@ class _SecurityMetricsPanelState extends State<SecurityMetricsPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       child: chip,
     );
+  }
+
+  /// Maps an anomaly flag category to a visible pill color.
+  Color _flagColor(String category) {
+    switch (category.toLowerCase()) {
+      case 'data_exfiltration':
+        return Colors.red;
+      case 'unauthorized_access':
+        return Colors.deepOrange;
+      case 'policy_violation':
+        return Colors.amber;
+      case 'aml_red_flag':
+        return Colors.purple;
+      case 'insider_trading':
+        return Colors.pink;
+      case 'sox_non_compliance':
+        return Colors.cyan;
+      case 'paste_event':
+        return Colors.orange;
+      case 'keystroke_anomaly':
+        return Colors.teal;
+      case 'copy_attempt':
+        return Colors.blueGrey;
+      case 'tab_switch':
+        return Colors.indigo;
+      default:
+        return Colors.red;
+    }
   }
 
   Color _severityColor(String severity, ThemeData theme) {
