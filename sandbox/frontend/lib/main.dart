@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -14,12 +15,23 @@ import 'providers/identity_provider.dart';
 /// Initializes the Provider tree with ApiService and all feature providers,
 /// then hands control to the CerberusApp root widget.
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: FirebaseOptions(
+      apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
+      appId: const String.fromEnvironment('FIREBASE_APP_ID'),
+      messagingSenderId: const String.fromEnvironment(
+        'FIREBASE_MESSAGING_SENDER_ID',
+      ),
+      projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
+    ),
+  );
 
   const apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:8080',
+    defaultValue: 'https://cerberus-api-35663052294.us-central1.run.app',
   );
 
   final apiService = ApiService(baseUrl: apiBaseUrl);
