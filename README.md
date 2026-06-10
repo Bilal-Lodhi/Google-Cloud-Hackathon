@@ -9,13 +9,6 @@ with **Hono** as the API runtime layer, **TypeScript**, **Gemini 3 Flash**, and
 
 **MongoDB Atlas Partner** — All session telemetry, micro-events, compliance matrices, and suspicion reports are persisted to MongoDB Atlas through a 10-tool MCP server with automatic index management and connection pooling. MongoDB Atlas serves as the durable grounding layer for the entire Cerberus FinSec platform.
 
-> **💡 Note for Judges**: The complete application source code, Docker
-> configuration, and detailed technical documentation live in the
-> [`/sandbox/`](sandbox/) directory. This root README serves as the
-> submission entry point overview. If the Cloud Run container is cold-starting
-> from sleep, please allow **10–15 seconds** for the initial environment to
-> spin up. Subsequent requests will be fast.
-
 **Platform Stack**: Google Cloud Agent Builder · Gemini 3 Flash · Hono API ·
 TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
 
@@ -95,6 +88,8 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 - [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
 - [Security — Credential Handling](#-security--credential-handling)
 - [Agent Design Philosophy](#-agent-design-philosophy)
+- [Session Lock — Workspace Freeze on Risk Alert](#-session-lock--workspace-freeze-on-risk-alert)
+- [AI Studio API Key Support](#-ai-studio-api-key-support)
 - [Hackathon Compliance Checklist](#-hackathon-compliance-checklist)
 - [Flutter Compliance Dashboard](#-flutter-compliance-dashboard)
 - [License](#-license)
@@ -390,11 +385,6 @@ gcloud run deploy cerberus-finsec-api --image=gcr.io/$PROJECT_ID/cerberus-api \
   --platform=managed --region=us-central1 --allow-unauthenticated
 ```
 
-> **⚠️ Cold Start Notice for Judges**: Cloud Run containers enter a suspended
-> state after periods of inactivity. The first request after sleep triggers a
-> cold start which may take **10–15 seconds** while the Hono API and MCP
-> server initialize. The Flutter frontend will automatically retry and
-> connect. Subsequent requests are served at full speed.
 
 ---
 
@@ -884,6 +874,54 @@ The session drawer now displays the **employee UID** as the primary list label
 (bold, weight 600) with the **session ID**, **event count**, and **status**
 as the subtitle. This makes it easier for compliance officers to identify which
 employee each session belongs to at a glance.
+
+---
+
+## 🔒 Session Lock — Workspace Freeze on Risk Alert
+
+When the Guardian detects a high-severity insider threat (anomaly risk index ≥ 75
+or a `CRITICAL` flag), the frontend code workspace automatically locks:
+
+- **Workspace Freeze**: The Flutter code editor transitions to read-only mode,
+  preventing further keystrokes and paste operations from entering the audited
+  session. A lock overlay with a shield icon and "WORKSPACE LOCKED — High-Severity
+  Threat Detected" message covers the editor pane.
+- **Backend Session Freeze**: The Hono API Guardian route sets the session status
+  to `"frozen"` in the in-memory registry and persists the freeze state to MongoDB
+  Atlas via the MCP `store_suspicion_report` tool. All subsequent ingest requests
+  for the frozen session receive a `403 Forbidden` with `sessionFrozen: true` and
+  a reference to the triggering `riskAssessmentId`.
+- **Unlock Authorization**: Only a manual review with an explicit unlock command
+  (`POST /api/v1/guardian/sessions/:id/unlock`) restores the session to active
+  state. The unlock endpoint requires a `reviewerId` and `unlockReason` in the
+  request body, which are logged to the session's compliance audit trail in
+  MongoDB Atlas.
+- **Frontend Feedback**: The `GuardianProvider` and `code_workspace_panel.dart`
+  surfaces the lock status through `isFrozen` and `frozenReason` fields. The
+  security metrics panel displays a persistent frozen-state banner with the
+  triggering risk assessment ID and timestamp.
+
+---
+
+## 🤖 AI Studio API Key Support
+
+In addition to Application Default Credentials (ADC) via Vertex AI, Cerberus
+FinSec supports **Google AI Studio API keys** for Gemini inference. This
+provides an alternative authentication path for rapid prototyping and
+environments where ADC is not configured:
+
+- **Configuration**: Set `GEMINI_API_KEY` in `sandbox/hono-api/.env` to bypass
+  Vertex AI and use the AI Studio endpoint directly. The Gemini client
+  (`gemini-client.ts`) auto-detects which auth method to use based on
+  environment variables at startup.
+- **Fallback Priority**: When both `GEMINI_API_KEY` and ADC are available, the
+  API key takes precedence for local development simplicity. Cloud Run
+  deployments default to ADC (auto-injected by the GCP metadata server) unless
+  `GEMINI_API_KEY` is explicitly set as an environment variable.
+- **Model Compatibility**: All `gemini-3-flash-preview` capabilities (structured
+  JSON output, compliance matrix generation, threat vector construction) are
+  identical across both authentication paths. The only difference is the API
+  endpoint routing.
 
 ---
 

@@ -66,6 +66,8 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 - [Identity Setup](#identity-setup)
 - [Input Validation & Resilience](#-input-validation--resilience)
 - [Session Persistence & Post-Restart Recovery](#-session-persistence--post-restart-recovery)
+- [Session Lock — Workspace Freeze on Risk Alert](#-session-lock--workspace-freeze-on-risk-alert)
+- [AI Studio API Key Support](#-ai-studio-api-key-support)
 - [State Management](#-state-management)
 - [API Integration](#-api-integration)
 
@@ -401,6 +403,46 @@ been redesigned for operator efficiency:
   now calls `GuardianProvider.resetForNewSession()` to clear the previous
   session's risk payload, events, and streaming subscription, then starts
   a fresh SSE stream for the newly selected session.
+
+---
+
+## 🔒 Session Lock — Workspace Freeze on Risk Alert
+
+When the Guardian detects a high-severity insider threat (anomaly risk index ≥ 75
+or a `CRITICAL` flag), the frontend code workspace automatically locks:
+
+- **Workspace Freeze**: The Flutter code editor (`code_workspace_panel.dart`)
+  transitions to read-only mode, preventing further keystrokes and paste
+  operations. A lock overlay with a shield icon and "WORKSPACE LOCKED —
+  High-Severity Threat Detected" message covers the editor pane.
+- **Backend Session Freeze**: The Guardian route sets the session status to
+  `"frozen"` in the in-memory registry and persists the freeze state to MongoDB
+  Atlas. All subsequent ingest requests for the frozen session receive a
+  `403 Forbidden` with `sessionFrozen: true`.
+- **Unlock Authorization**: Only a manual review with an explicit unlock
+  command (`POST /api/v1/guardian/sessions/:id/unlock`) restores the session to
+  active state. The unlock requires a `reviewerId` and `unlockReason`, which are
+  logged to the compliance audit trail in MongoDB Atlas.
+- **Frontend Feedback**: `GuardianProvider` and `code_workspace_panel.dart`
+  surface the lock status through `isFrozen` and `frozenReason` fields. The
+  security metrics panel displays a persistent frozen-state banner with the
+  triggering risk assessment ID and timestamp.
+
+## 🤖 AI Studio API Key Support
+
+The Flutter dashboard supports both Vertex AI (ADC) and Google AI Studio API key
+authentication paths for Gemini inference:
+
+- **Configuration**: Set `GEMINI_API_KEY` in `sandbox/hono-api/.env` to use the
+  AI Studio endpoint. The frontend requires no code changes — the API key is
+  handled server-side by the Hono API layer. All `ApiService` calls remain
+  unchanged.
+- **Fallback Priority**: When both `GEMINI_API_KEY` and ADC are available on the
+  backend, the API key takes precedence for local development. Cloud Run
+  deployments default to ADC unless `GEMINI_API_KEY` is explicitly set.
+- **Model Compatibility**: All Gemini capabilities (structured JSON output,
+  compliance matrix generation, threat vector construction) are identical across
+  both authentication paths from the frontend's perspective.
 
 ---
 
