@@ -503,3 +503,5 @@ Ingest payloads use batched `MicroEvent[]` with valid `eventType` values:
 ---
 
 Built with Flutter + Dart for the Cerberus FinSec platform.
+
+**Live App**: [https://webscraping-464710.web.app/](https://webscraping-464710.web.app/)

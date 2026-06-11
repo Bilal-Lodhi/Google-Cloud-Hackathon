@@ -1195,7 +1195,7 @@ Apache 2.0 — See [LICENSE](LICENSE) for full legal text.
 - **Repository**: [https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon](https://github.com/Bilal-Lodhi/Google-Cloud-Hackathon)
 - **Application Code**: [`sandbox/`](sandbox/) directory
 - **Demo Video**: Provided in the submission deliverables
-- **Live App**: Deployed via Google Cloud Run
+- **Live App**: [https://webscraping-464710.web.app/](https://webscraping-464710.web.app/)
 
 ---
 

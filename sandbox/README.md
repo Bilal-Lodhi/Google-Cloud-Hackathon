@@ -1185,4 +1185,8 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 
 ---
 
+**Live App**: [https://webscraping-464710.web.app/](https://webscraping-464710.web.app/)
+
+---
+
 Built with ❤️ for the Google Cloud Rapid Agent Hackathon 2026 — Financial Services Track.
