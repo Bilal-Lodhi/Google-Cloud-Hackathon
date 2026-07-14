@@ -45,7 +45,7 @@ export interface MatrixMetadata {
   matrixId: string;
   suiteId: string;              // Unique suite ID for MongoDB indexing (mirrors matrixId)
   generatedAt: string;          // ISO-8601
-  modelVersion: string;         // e.g. "gemini-3-flash-preview"
+  modelVersion: string;         // e.g. "gpt-5.6"
   promptFingerprint: string;    // SHA-256 of the input prompt
   tokenUsage: TokenUsageStats;
 }
@@ -276,7 +276,7 @@ export interface ExfiltrationMatch {
   sourceSnippet: string;
   employeeSnippet: string;
   similarityScore: number;
-  sourceLabel: string;          // e.g. "gemini-3-flash-preview-completion", "external-llm-service"
+  sourceLabel: string;          // e.g. "gpt-5.6-completion", "external-llm-service"
 }
 
 export interface BehavioralAnomaly {
