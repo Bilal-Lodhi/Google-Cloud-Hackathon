@@ -1,16 +1,30 @@
-/** * Cerberus FinSec — Ultra-Resilient Gemini 3 Flash Preview Client
- * Google Cloud Financial Services Track — Hackathon 2026
+/** * Cerberus FinSec — Ultra-Resilient GPT-5.6 Client (OpenAI SDK)
+ * OpenAI Build Week 2026 — Agentic Coding Track
  *
- * Primary backend: Gemini API (free tier) via @google/genai SDK.
- * Falls back to Vertex AI if no API key is provided.
+ * Primary backend: GPT-5.6 via the OpenAI Node.js SDK.
  * Retry loop (max 3 attempts) with exponential backoff + jitter.
- * Exclusive use of the mandated model: gemini-3-flash-preview.
  *
  * ROLE: Elite automated Chief Information Security Officer (CISO) agent
  * specialized in banking regulations. Generates compliance audit profiles
  * containing targeted systems, regulatory rules, and active threat vectors.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * Codex Usage Log (OpenAI Build Week 2026)
+ * ═══════════════════════════════════════════════════════════════════
+ * Codex was used to:
+ *   1. Refactor this entire file from @google/genai (Gemini) to the
+ *      OpenAI SDK, mapping all Gemini-specific constructs (safetySettings,
+ *      generationConfig, responseMimeType) to OpenAI equivalents
+ *      (temperature, max_tokens, response_format: json_object).
+ *   2. Preserve the exact class API contract so all downstream route
+ *      files (generate.ts, guardian.ts) continue to work without changes.
+ *   3. Replace the Gemini API / Vertex AI dual-backend with a single
+ *      OpenAI backend, simplifying the retry and fallback logic.
+ *   4. Add structured JSON output via response_format: json_object
+ *      to guarantee parseable responses from GPT-5.6.
  */
 
+import OpenAI from "openai";
 import type { AppConfig } from "../config.js";
 import { toISOStringLocal } from "../utils/time.js";
 import type {
@@ -25,33 +39,7 @@ import type {
   AntiExfiltrationThresholds,
   RiskAssessmentPayload,
 } from "../types.js";
-
-// ═══════════════════════════════════════════════════════════════════
-// @google/genai SDK — lazy-loaded for fast cold starts
-// ═══════════════════════════════════════════════════════════════════
-
-let _GoogleGenAI: typeof import("@google/genai").GoogleGenAI | null = null;
-let _HarmCategory: typeof import("@google/genai").HarmCategory | null = null;
-let _HarmBlockThreshold: typeof import("@google/genai").HarmBlockThreshold | null = null;
-
-async function loadGenAISDK() {
-  if (_GoogleGenAI) {
-    return {
-      GoogleGenAI: _GoogleGenAI,
-      HarmCategory: _HarmCategory!,
-      HarmBlockThreshold: _HarmBlockThreshold!,
-    };
-  }
-  const sdk = await import("@google/genai");
-  _GoogleGenAI = sdk.GoogleGenAI;
-  _HarmCategory = sdk.HarmCategory;
-  _HarmBlockThreshold = sdk.HarmBlockThreshold;
-  return {
-    GoogleGenAI: _GoogleGenAI,
-    HarmCategory: _HarmCategory,
-    HarmBlockThreshold: _HarmBlockThreshold,
-  };
-}
+import * as crypto from "node:crypto";
 
 // ═══════════════════════════════════════════════════════════════════
 // Helper: safely extract an array from parsed JSON
@@ -76,38 +64,43 @@ const BASE_BACKOFF_MS = 1000;
 
 // ═══════════════════════════════════════════════════════════════════
 // GeminiClient — Elite CISO Agent for Financial Compliance
+// (Class name preserved for backward compatibility with all route files)
 // ═══════════════════════════════════════════════════════════════════
 
 export class GeminiClient {
-  private readonly apiKey: string;
-  private readonly projectId: string;
-  private readonly location: string;
+  private readonly openai: OpenAI;
   private readonly model: string;
   private readonly maxOutputTokens: number;
   private readonly temperature: number;
-  private readonly useGeminiApi: boolean;
 
   constructor(config: AppConfig) {
-    this.apiKey = config.gemini.apiKey;
-    this.projectId = config.gemini.projectId;
-    this.location = config.gemini.location;
-    this.model = config.gemini.model;
-    this.maxOutputTokens = config.gemini.maxOutputTokens;
-    this.temperature = config.gemini.temperature;
-    this.useGeminiApi = !!this.apiKey;
+    if (!config.openai.apiKey) {
+      throw new Error(
+        "[Cerberus FinSec CISO Agent] OPENAI_API_KEY is not set. Unable to initialize OpenAI client."
+      );
+    }
+
+    this.openai = new OpenAI({
+      apiKey: config.openai.apiKey,
+      maxRetries: 3,
+      timeout: config.openai.requestTimeoutMs,
+    });
+
+    this.model = config.openai.model;
+    this.maxOutputTokens = config.openai.maxOutputTokens;
+    this.temperature = config.openai.temperature;
 
     console.log(
       `[Cerberus FinSec CISO Agent] Initialized → model="${this.model}" ` +
-        `backend="${this.useGeminiApi ? "Gemini API" : "Vertex AI"}" ` +
-        (this.useGeminiApi
-          ? `apiKey=${this.apiKey.substring(0, 8)}... `
-          : `project="${this.projectId}" location="${this.location}" `) +
-        `maxOutputTokens=${this.maxOutputTokens} temp=${this.temperature}`
+        `backend="OpenAI API" ` +
+        `apiKey=${config.openai.apiKey.substring(0, 8)}... ` +
+        `maxOutputTokens=${this.maxOutputTokens} temp=${this.temperature} ` +
+        `timeout=${config.openai.requestTimeoutMs}ms`
     );
   }
 
   // ───────────────────────────────────────────────────────────────
-  // Public: classifyComplianceIntent
+  // Public: classifyAssessmentIntent
   // ───────────────────────────────────────────────────────────────
 
   async classifyAssessmentIntent(
@@ -125,15 +118,14 @@ export class GeminiClient {
     detectedAssessmentType: string;
   }> {
     console.log(
-      "[Cerberus FinSec CISO] [classifyComplianceIntent] Sending prompt to Gemini for classification..."
+      "[Cerberus FinSec CISO] [classifyAssessmentIntent] Sending prompt to GPT-5.6 for classification..."
     );
     const systemInstruction = this.buildClassifierSystemInstruction();
     const userMessage = this.buildClassifierUserMessage(prompt, roleContext);
-    // Classifier keeps strict safety — BLOCK_MEDIUM_AND_ABOVE
     const responseText = await this.sendMessage(systemInstruction, userMessage, signal);
     const verdict = this.parseClassifierResponse(responseText);
     console.log(
-      `[Cerberus FinSec CISO] [classifyComplianceIntent] Verdict: ` +
+      `[Cerberus FinSec CISO] [classifyAssessmentIntent] Verdict: ` +
         `isAssessmentRelated=${verdict.isAssessmentRelated} confidence=${verdict.confidence}`
     );
     return verdict;
@@ -160,8 +152,7 @@ export class GeminiClient {
     };
     const systemInstruction = this.buildOrchestratorSystemInstruction(orchestratorPrompt);
     const userMessage = this.buildOrchestratorUserMessage(orchestratorPrompt);
-    // Matrix generation needs relaxed safety to produce realistic threat vectors
-    const responseText = await this.sendMessage(systemInstruction, userMessage, signal, true);
+    const responseText = await this.sendMessage(systemInstruction, userMessage, signal);
     const matrix = this.parseComplianceMatrixResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [generateComplianceMatrix] Matrix parsed → ` +
@@ -192,8 +183,7 @@ export class GeminiClient {
     const userMessage = this.buildGuardianUserMessage(
       currentCode, pasteContents, keystrokeMetrics, referenceCompletions
     );
-    // Suspicion analysis needs relaxed safety to properly detect insider threats
-    const responseText = await this.sendMessage(systemInstruction, userMessage, undefined, true);
+    const responseText = await this.sendMessage(systemInstruction, userMessage);
     const payload = this.parseRiskResponse(responseText);
     console.log(
       `[Cerberus FinSec CISO] [analyzeInsiderRisk] Risk score=${payload.overallRiskScore} flags=${payload.flags.length}`
@@ -201,116 +191,82 @@ export class GeminiClient {
     return payload;
   }
 
-  // ───────────────────────────────────────────────────────────────
-  // Gemini SDK Call (with Retry) via @google/genai
-  // Supports both Gemini API (apiKey) and Vertex AI (project/location).
-  // ───────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // OpenAI SDK Call (with Retry)
+  // Uses a single unified backend via the OpenAI Node.js SDK.
+  // ═══════════════════════════════════════════════════════════════════
 
   private async sendMessage(
     systemInstruction: string,
     userMessage: string,
     signal?: AbortSignal,
-    useRelaxedSafety = false,
   ): Promise<string> {
     if (signal?.aborted) {
       throw new Error("Compliance matrix generation cancelled by user");
     }
-    const { GoogleGenAI, HarmCategory, HarmBlockThreshold } = await loadGenAISDK();
 
-    // Build the SDK client based on available credentials
-    const createClient = () =>
-      this.useGeminiApi
-        ? new GoogleGenAI({ apiKey: this.apiKey })
-        : new GoogleGenAI({
-            vertexai: true,
-            project: this.projectId,
-            location: this.location,
-          });
-
-    const ai = createClient();
-
-    // Build safety settings once — classifier uses stricter thresholds,
-    // suspicion analysis and compliance matrix generation use relaxed ones.
-    const safetySettings = useRelaxedSafety
-      ? [
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        ]
-      : [
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-        ];
-
-    const backendLabel = this.useGeminiApi ? "Gemini API" : "Vertex";
+    const backendLabel = "OpenAI API";
 
     let lastError: Error | null = null;
-    let skipResponseMimeType = false;
     let consecutiveEmpties = 0;
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (signal?.aborted) {
         throw new Error("Compliance matrix generation cancelled by user");
       }
       try {
-        const useJsonMimeType = !skipResponseMimeType;
         console.log(
           `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} — ` +
-            `Dispatching to model "${this.model}" responseMimeType=${useJsonMimeType ? '"application/json"' : "omitted"}...`
+            `Dispatching to model "${this.model}" with response_format=json_object...`
         );
         const startMs = Date.now();
-        const result = await ai.models.generateContent({
+
+        const completion = await this.openai.chat.completions.create({
           model: this.model,
-          contents: [{ role: "user", parts: [{ text: userMessage }] }],
-          config: {
-            systemInstruction: {
-              role: "user",
-              parts: [{ text: systemInstruction }],
-            },
-            temperature: this.temperature,
-            maxOutputTokens: this.maxOutputTokens,
-            topP: 0.95,
-            ...(useJsonMimeType ? { responseMimeType: "application/json" } : {}),
-            safetySettings: safetySettings,
-          },
+          temperature: this.temperature,
+          max_tokens: this.maxOutputTokens,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userMessage },
+          ],
+          response_format: { type: "json_object" },
         });
+
         const elapsedMs = Date.now() - startMs;
-        const text = result.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const text = completion.choices[0]?.message?.content ?? "";
+
         console.log(
           `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
             `elapsed=${elapsedMs}ms textLength=${text?.length ?? 0}`
         );
+
         if (!text || text.trim().length === 0) {
           consecutiveEmpties++;
-          if (useJsonMimeType && !skipResponseMimeType) {
-            // First time empty with responseMimeType — try once without it
+          // Try once without json_object response format in case the model
+          // is refusing because of formatting constraints
+          if (consecutiveEmpties === 1) {
+            console.log(
+              `[Cerberus FinSec CISO] [${backendLabel}] Retrying without response_format constraint...`
+            );
             const retryStart = Date.now();
-            const retryResult = await ai.models.generateContent({
+            const retryCompletion = await this.openai.chat.completions.create({
               model: this.model,
-              contents: [{ role: "user", parts: [{ text: userMessage }] }],
-              config: {
-                systemInstruction: {
-                  role: "user",
-                  parts: [{ text: systemInstruction }],
-                },
-                temperature: this.temperature,
-                maxOutputTokens: this.maxOutputTokens,
-                topP: 0.95,
-                safetySettings: safetySettings,
-              },
+              temperature: this.temperature,
+              max_tokens: this.maxOutputTokens,
+              messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: userMessage },
+              ],
             });
-            const retryText = retryResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+            const retryText = retryCompletion.choices[0]?.message?.content ?? "";
             const retryElapsed = Date.now() - retryStart;
             console.log(
-              `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} retry (no responseMimeType) — ` +
+              `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} retry (no json_object) — ` +
                 `elapsed=${retryElapsed}ms textLength=${retryText.length}`
             );
             if (retryText && retryText.trim().length > 0) return retryText;
             consecutiveEmpties++;
           }
-          skipResponseMimeType = true;
           lastError = new Error(`${backendLabel} returned empty response text`);
           continue;
         }
@@ -321,56 +277,17 @@ export class GeminiClient {
         lastError = error instanceof Error ? error : new Error(errMsg);
         consecutiveEmpties = 0;
 
-        // fallback: try gemini-2.5-flash on auth/404/429 errors.
-        const isAuthError = errMsg.includes("401") || errMsg.includes("UNAUTHENTICATED");
-        const isNotFound = errMsg.includes("404");
-        const isResourceExhausted = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED");
-        if ((isNotFound || isAuthError || isResourceExhausted) && this.model.includes("gemini-3")) {
-          try {
-            const fbStart = Date.now();
-            const fbClient = this.useGeminiApi
-              ? new GoogleGenAI({ apiKey: this.apiKey })
-              : new GoogleGenAI({
-                  vertexai: true,
-                  project: this.projectId,
-                  location: "us-central1",
-                });
-            const fbResult = await fbClient.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents: [{ role: "user", parts: [{ text: userMessage }] }],
-              config: {
-                systemInstruction: {
-                  role: "user",
-                  parts: [{ text: systemInstruction }],
-                },
-                temperature: this.temperature,
-                maxOutputTokens: this.maxOutputTokens,
-                topP: 0.95,
-                responseMimeType: "application/json",
-                safetySettings: safetySettings,
-              },
-            });
-            const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-            const fbElapsed = Date.now() - fbStart;
-            console.log(
-              `[Cerberus FinSec CISO] [${backendLabel}] Attempt ${attempt}/${MAX_RETRIES} completed — ` +
-                `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
-            );
-            if (fbText && fbText.trim().length > 0) return fbText;
-          } catch (_fbErr) {
-            // Silently swallow — the main retry loop will handle it
-          }
-        }
-
+        // Non-retryable errors
         if (
-          errMsg.includes("PERMISSION_DENIED") ||
-          errMsg.includes("INVALID_ARGUMENT") ||
-          errMsg.includes("NOT_FOUND") ||
-          errMsg.includes("GoogleAuth")
+          errMsg.includes("401") ||
+          errMsg.includes("403") ||
+          errMsg.includes("invalid_api_key") ||
+          errMsg.includes("insufficient_quota")
         ) {
           throw lastError;
         }
       }
+
       if (attempt < MAX_RETRIES) {
         const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 500;
         console.log(
@@ -380,54 +297,14 @@ export class GeminiClient {
       }
     }
 
-    // ── final fallback: all gemini-3 attempts exhausted with empty responses ──
-    // Try gemini-2.5-flash.
-    if (this.model.includes("gemini-3") && (lastError?.message.includes("empty") || consecutiveEmpties > 0)) {
-      try {
-        const fbStart = Date.now();
-        const fbClient = this.useGeminiApi
-          ? new GoogleGenAI({ apiKey: this.apiKey })
-          : new GoogleGenAI({
-              vertexai: true,
-              project: this.projectId,
-              location: "us-central1",
-            });
-        const fbResult = await fbClient.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: [{ role: "user", parts: [{ text: userMessage }] }],
-          config: {
-            systemInstruction: {
-              role: "user",
-              parts: [{ text: systemInstruction }],
-            },
-            temperature: this.temperature,
-            maxOutputTokens: this.maxOutputTokens,
-            topP: 0.95,
-            responseMimeType: "application/json",
-            safetySettings: safetySettings,
-          },
-        });
-        const fbText = fbResult.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-        const fbElapsed = Date.now() - fbStart;
-        console.log(
-          `[Cerberus FinSec CISO] [${backendLabel}] Attempt 3/${MAX_RETRIES} completed — ` +
-            `elapsed=${fbElapsed}ms textLength=${fbText?.length ?? 0}`
-        );
-        if (fbText && fbText.trim().length > 0) return fbText;
-        lastError = new Error(`${backendLabel} returned empty response text`);
-      } catch (_fbErr) {
-        // Silently swallow — throw the original error below
-      }
-    }
-
     throw new Error(
       `${backendLabel} request failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message ?? "unknown"}`
     );
   }
 
-  // ───────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
   // Response Parsers
-  // ───────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
 
   private parseComplianceMatrixResponse(rawText: string): GeneratedComplianceMatrix {
     let jsonText = rawText.trim();
@@ -451,7 +328,7 @@ export class GeminiClient {
 
     const metadata = parsed["metadata"] as Record<string, unknown> | undefined;
 
-    // Safely extract top-level arrays — Gemini sometimes returns strings
+    // Safely extract top-level arrays — GPT sometimes returns strings
     // instead of arrays, which would crash Flutter's Map<String,dynamic> cast.
     const threatVectorsRaw = safeArray(parsed["threatVectors"]) 
       ?? safeArray(parsed["threat_vectors"])
@@ -507,7 +384,7 @@ export class GeminiClient {
       name: (rm["name"] as string) ?? "Unnamed Mandate",
       description: (rm["description"] as string) ?? "",
       weight: (rm["weight"] as number) ?? 0,
-      // SAFETY: subMandates must be an array — if Gemini returns a string like
+      // SAFETY: subMandates must be an array — if GPT returns a string like
       // "Req 3.4 (Encryption)" we default to [] to prevent Flutter crash.
       subMandates: safeArray(rm["subMandates"] ?? rm["sub_mandates"] ?? rm["subCompetencies"]) as unknown as RegulatoryMandate[],
       regulationCode:
@@ -863,7 +740,7 @@ Respond STRICTLY with a single JSON object:
         "sourceSnippet": "string (the known good reference)",
         "employeeSnippet": "string (the employee's suspicious code)",
         "similarityScore": number,
-        "sourceLabel": "string (e.g. gemini-3-flash-preview-completion, external-llm-service)"
+        "sourceLabel": "string (e.g. gpt-5.6-completion, external-llm-service)"
       }
     ],
     "aiCompletionLikelihood": number (0-1)
@@ -937,7 +814,7 @@ Determine risk level and produce the JSON risk assessment payload.`;
   }
 
   /**
-   * Lightweight JSON repair for common Gemini output quirks:
+   * Lightweight JSON repair for common LLM output quirks:
    * - Trailing commas before closing brackets/braces
    * - Unescaped control characters in strings
    * - Missing quotes around property names
@@ -996,7 +873,6 @@ let _singleton: GeminiClient | null = null;
 
 export function getGeminiClient(): GeminiClient {
   if (!_singleton) {
-    // The config module handles lazy initialization
     throw new Error("GeminiClient not initialized. Call initGeminiClient first.");
   }
   return _singleton;
