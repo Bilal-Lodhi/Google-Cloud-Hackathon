@@ -1,6 +1,6 @@
 /**
- * Gorilla Agent Ecosystem — Hono API Entry Point
- * Google Cloud Rapid Agent Hackathon 2026 — MongoDB Partner Track
+ * Cerberus FinSec — Hono API Entry Point
+ * OpenAI Build Week 2026 — Agentic Coding Track
  *
  * This serverless-first Hono application runs on Google Cloud Run and
  * exposes three core agent capabilities:
@@ -10,10 +10,10 @@
  *   3. GET  /api/v1/sessions/:id/review — Interactive Analytical Review Log
  *
  * Architecture:
- *   Hono (routing) → GeminiClient (native fetch to Gemini 3 Flash Preview)
+ *   Hono (routing) → GeminiClient (OpenAI SDK → GPT-5.6)
  *                  → MCP Server (MongoDB Atlas persistence layer)
  *
- * Zero legacy dependencies. Pure TypeScript + native Web APIs.
+ * Authentication: OPENAI_API_KEY environment variable.
  */
 
 import { Hono } from "hono";
@@ -26,16 +26,11 @@ import { generateRouter } from "./routes/generate.js";
 import { guardianRouter } from "./routes/guardian.js";
 import { reviewRouter } from "./routes/review.js";
 import { identityRouter } from "./routes/identity.js";
-import { loadConfig, warmUpADC } from "./config.js";
+import { loadConfig } from "./config.js";
 
 // ─── Configuration ─────────────────────────────────────────────────
 
 const config = loadConfig();
-
-// ─── ADC Pre-Warming ───────────────────────────────────────────────
-// Eliminates the GCP metadata server cold-start race condition.
-
-await warmUpADC();
 
 // ─── Application ───────────────────────────────────────────────────
 
@@ -124,8 +119,8 @@ if (isMainModule) {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║  🔒 Cerberus FinSec — Insider Threat & Data Exfiltration    ║
-║  Guardian v1.0.0 | Google Cloud Financial Services Track     ║
-║  Gemini 3 Flash Preview | MongoDB Atlas                      ║
+║  Guardian v1.0.0 | OpenAI Build Week 2026                    ║
+║  GPT-5.6 | MongoDB Atlas                                     ║
 ║──────────────────────────────────────────────────────────────║
 ║  Health:  http://localhost:${config.port}/health             ║
 ║  API v1:  http://localhost:${config.port}/api/v1/            ║
