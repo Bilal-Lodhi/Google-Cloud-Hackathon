@@ -11,10 +11,10 @@ const healthRouter = new Hono();
 healthRouter.get("/", (c) => {
   return c.json({
     status: "healthy",
-    service: "gorilla-agent-ecosystem",
+    service: "cerberus-fintech-guardian",
     version: "1.0.0",
     platform: "Google Cloud Run",
-    modelProvider: "Gemini 3 Flash Preview (Vertex AI / Gemini API)",
+    modelProvider: "GPT-5.6 (OpenAI SDK)",
     mcpTrack: "MongoDB",
     features: {
       autonomousTestGeneration: "/api/v1/generate",

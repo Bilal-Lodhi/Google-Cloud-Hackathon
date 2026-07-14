@@ -761,8 +761,8 @@ reviewRouter.get("/:sessionId", async (c) => {
     }
 
     // Map risk reports to RiskAssessmentPayload type.
-    // Flags are stored in MongoDB as full objects from Gemini's JSON output,
-    // NOT as plain strings. We map Gemini's field names to the contract expected
+    // Flags are stored in MongoDB as full objects from GPT-5.6's JSON output,
+    // NOT as plain strings. We map GPT-5.6's field names to the contract expected
     // by the Flutter AnomalyFlag.fromJson parser.
     const riskSummary: RiskAssessmentPayload[] = reports.map((r) => {
       const rawFlags: Record<string, unknown>[] =

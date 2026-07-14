@@ -3,16 +3,16 @@
  * Feature 1 — COMPLIANCE POLICY & THREAT MATRIX GENERATOR
  *
  * Accepts a single text prompt and delegates to the Cerberus FinSec
- * CISO Orchestrator Agent backed by Gemini 3 Flash Preview.
+ * CISO Orchestrator Agent backed by GPT-5.6 (OpenAI).
  * Returns a fully structured compliance audit profile with metadata,
  * target systems, regulatory mandates, threat vectors, and penetration scenarios.
  *
  * ═══════════════════════════════════════════════════════════════════
- * ARCHITECTURE — Gemini is the SOLE gatekeeper for content filtering.
+ * ARCHITECTURE — AI is the SOLE gatekeeper for content filtering.
  *
  *   Every input — from "hello" to "generate a Python test" to keyboard
  *   mashing — flows directly to Gemini's classifyAssessmentIntent.
- *   Gemini determines isInputMeaningful, isAssessmentRelated, domain,
+ *   The AI determines isInputMeaningful, isAssessmentRelated, domain,
  *   and confidence. This avoids fragile pattern-matching and lets the
  *   LLM apply genuine semantic understanding to every request.
  *
@@ -41,7 +41,7 @@ import { toISOStringLocal } from "../utils/time.js";
 // Stage 1: Regex-Based Content Pre-Filter
 //
 // Catches obvious vulgarity, profanity, keyboard mashing / gibberish,
-// and empty/greeting-only inputs BEFORE sending to Gemini.
+// and empty/greeting-only inputs BEFORE sending to the AI model.
 // This is a fast, deterministic first line of defense.
 // ═══════════════════════════════════════════════════════════════════
 
@@ -112,7 +112,7 @@ function runPreFilter(prompt: string): PreFilterResult {
     if (trimmed.length < 3) {
       return { passed: false, reason: "Input too short to be meaningful.", flags: ["GIBBERISH"] };
     }
-    // Single short word likely not meaningful, let Gemini have final say
+    // Single short word likely not meaningful, let AI have final say
   }
 
   // Profanity/Vulgarity check
@@ -159,7 +159,7 @@ const MCP_GROUNDING_TIMEOUT_MS = 5_000;
 
 // ═══════════════════════════════════════════════════════════════════
 // Pipeline Diagnostics — attached to EVERY response so you can
-// see exactly what Gemini decided and why.
+// see exactly what the AI decided and why.
 // ═══════════════════════════════════════════════════════════════════
 
 interface PipelineDiagnostics {
@@ -173,7 +173,7 @@ interface PipelineDiagnostics {
     reason: string;
     flags: string[];
   };
-  /** ── Gemini Classifier ── */
+  /** ── AI Classifier ── */
   geminiClassifier: {
     executed: boolean;
     elapsedMs: number;
@@ -321,7 +321,7 @@ generateRouter.post("/", async (c) => {
 
   // ── Step 2a: Stage 1 Regex Pre-Filter ──────────────────────────
   // Fast deterministic check for obvious vulgarity, gibberish, greetings
-  // BEFORE sending to Gemini. Saves API cost and provides instant rejection.
+  // BEFORE sending to the AI model. Saves API cost and provides instant rejection.
   console.log(
     `[Generate Route] [${requestId}] Step 2a — Running regex pre-filter...`,
   );
@@ -356,11 +356,11 @@ generateRouter.post("/", async (c) => {
     );
   }
 
-  // ── Step 2b: Gemini Classifier (semantic gatekeeper) ───────────
-  // Pre-filter passed — now Gemini applies genuine semantic understanding
+  // ── Step 2b: AI Classifier (semantic gatekeeper) ───────────
+  // Pre-filter passed — now AI applies genuine semantic understanding
   // to detect inappropriate content, meaning, domain, and assessment relevance.
   console.log(
-    `[Generate Route] [${requestId}] Step 2b — Running Gemini classifyAssessmentIntent...`,
+    `[Generate Route] [${requestId}] Step 2b — Running AI classifyAssessmentIntent...`,
   );
 
   let classifierDiag: PipelineDiagnostics["geminiClassifier"] = {
@@ -393,7 +393,7 @@ generateRouter.post("/", async (c) => {
     const classifierElapsed = Date.now() - classifierStartMs;
 
     console.log(
-      `[Generate Route] [${requestId}] Gemini classifier returned in ${classifierElapsed}ms — ` +
+      `[Generate Route] [${requestId}] AI Classifier returned in ${classifierElapsed}ms — ` +
         `isInputMeaningful=${verdict.isInputMeaningful} ` +
         `isAssessmentRelated=${verdict.isAssessmentRelated} ` +
         `isAppropriate=${verdict.isAppropriate} ` +
@@ -463,14 +463,14 @@ generateRouter.post("/", async (c) => {
     const classificationRejected = classifierErrors.length > 0;
 
     if (classificationRejected) {
-      const geminiReason = verdict.reason || "";
+      const aiReason = verdict.reason || "";
       const tagline =
         "\n\nSecurity Violation: I am the Cerberus FinSec Insider Threat & Data Exfiltration Guardian. " +
         "Request a compliance audit, threat matrix, or penetration test to proceed.";
-      const reason = geminiReason + tagline;
+      const reason = aiReason + tagline;
 
       console.warn(
-        `[Generate Route] [${requestId}] Gemini classifier REJECTED. Errors: [${classifierErrors.join(", ")}]`,
+        `[Generate Route] [${requestId}] AI Classifier REJECTED. Errors: [${classifierErrors.join(", ")}]`,
       );
 
       return c.json(
@@ -493,7 +493,7 @@ generateRouter.post("/", async (c) => {
     }
 
     console.log(
-      `[Generate Route] [${requestId}] Gemini classifier ACCEPTED. ` +
+      `[Generate Route] [${requestId}] AI Classifier ACCEPTED. ` +
         `Domain="${verdict.detectedDomain}" Type="${verdict.detectedAssessmentType}"`,
     );
   } catch (classifierError) {
@@ -502,7 +502,7 @@ generateRouter.post("/", async (c) => {
         ? classifierError.message
         : "Classifier failure";
     console.error(
-      `[Generate Route] [${requestId}] Gemini classifier FAILED: ${classifierMsg}`,
+      `[Generate Route] [${requestId}] AI Classifier FAILED: ${classifierMsg}`,
     );
 
     classifierDiag = {
@@ -513,7 +513,7 @@ generateRouter.post("/", async (c) => {
 
     // ── FAIL-CLOSED: If the classifier is unavailable, reject the request ──
     // Previously this was fail-open ("proceeding to generation anyway"),
-    // which allowed all content to pass through when Gemini was down.
+    // which allowed all content to pass through when the AI was down.
     console.warn(
       `[Generate Route] [${requestId}] Classifier unavailable — rejecting request (fail-closed).`,
     );
@@ -551,7 +551,7 @@ generateRouter.post("/", async (c) => {
 
   try {
     console.log(
-      `[Generate Route] [${requestId}] Delegating to GeminiClient.generateComplianceMatrix...`,
+      `[Generate Route] [${requestId}] Delegating to GeminiClient (GPT-5.6).generateComplianceMatrix...`,
     );
     const matrixStartMs = Date.now();
 
@@ -564,7 +564,7 @@ generateRouter.post("/", async (c) => {
 
     const matrixElapsed = Date.now() - matrixStartMs;
     console.log(
-      `[Generate Route] [${requestId}] GeminiClient returned matrix in ${matrixElapsed}ms — ` +
+      `[Generate Route] [${requestId}] GeminiClient (GPT-5.6) returned matrix in ${matrixElapsed}ms — ` +
         `${matrix.threatVectors.length} threat vectors, ${matrix.regulatoryMandates.length} regulatory mandates`,
     );
 
@@ -627,17 +627,17 @@ generateRouter.post("/", async (c) => {
       );
     }
 
-    const isGeminiOverloaded =
-      message.includes("Gemini request failed after") ||
+    const isAIServiceOverloaded =
+      message.includes("request failed after") ||
       message.includes("timed out after") ||
       message.includes("overloaded") ||
-      message.includes("Gemini API error 503") ||
-      message.includes("Gemini API error 504") ||
-      message.includes("Gemini API error 429");
+      message.includes("API error 503") ||
+      message.includes("API error 504") ||
+      message.includes("API error 429");
 
-    const statusCode = isGeminiOverloaded ? 503 : 500;
-    const userError = isGeminiOverloaded
-      ? "Gemini is currently busy. Please retry in a moment."
+    const statusCode = isAIServiceOverloaded ? 503 : 500;
+    const userError = isAIServiceOverloaded
+      ? "AI service is currently busy. Please retry in a moment."
       : `Test suite generation failed: ${message}`;
 
     return c.json(
@@ -645,7 +645,7 @@ generateRouter.post("/", async (c) => {
         success: false,
         error: userError,
         correlationId: requestId,
-        retryable: isGeminiOverloaded,
+        retryable: isAIServiceOverloaded,
         pipeline: buildPipelineDiag(
           startedAt,
           trimmedPrompt,

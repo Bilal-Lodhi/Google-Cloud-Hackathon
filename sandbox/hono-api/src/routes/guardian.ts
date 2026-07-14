@@ -4,7 +4,7 @@
  *
  * Streaming micro-event ingestion handler. Accepts batches of telemetry
  * (paste triggers, code deltas, tab switches, copy attempts) and delegates
- * to the Cerberus FinSec Guardian Agent backed by Gemini for semantic
+ * to the Cerberus FinSec Guardian Agent backed by GPT-5.6 (OpenAI) for semantic
  * data exfiltration detection and behavioral anomaly scoring.
  *
  * Sessions are persisted to MongoDB via the MCP HTTP adapter sidecar.
@@ -64,7 +64,7 @@ interface SessionState {
   lastRiskPayload: RiskAssessmentPayload | null;
   eventCount: number;
   status: string;
-  /** SHA-256 of currentCode at the time of the last Gemini analysis.
+  /** SHA-256 of currentCode at the time of the last AI analysis.
    *  Used to skip re-analysis when identical code is ingested repeatedly. */
   lastAnalyzedCodeHash: string;
   /** Fingerprints of the last N micro-events to suppress true duplicates
@@ -189,7 +189,7 @@ guardianRouter.post("/ingest", async (c) => {
         .digest("hex");
       if (codeHash === session.lastAnalyzedCodeHash) {
         console.log(
-          `[Guardian Route] [${requestId}] Skipping Gemini — code unchanged (hash=${codeHash.slice(0, 12)})`
+          `[Guardian Route] [${requestId}] Skipping AI analysis — code unchanged (hash=${codeHash.slice(0, 12)})`
         );
         // Re-emit the last payload so the frontend doesn't go blank
         const lastPayload = session.lastRiskPayload;
@@ -226,7 +226,7 @@ guardianRouter.post("/ingest", async (c) => {
       );
 
       console.log(
-        `[Guardian Route] [${requestId}] Invoking GeminiClient.analyzeSuspicion ` +
+        `[Guardian Route] [${requestId}] Invoking GeminiClient (GPT-5.6).analyzeSuspicion ` +
           `- codeLen=${session.currentCode.length} pastes=${pasteContents.length} ` +
           `refCompletions=${referenceCompletions.length} keystrokeAvg=${keystrokeMetrics.avgDeltaMs.toFixed(1)}ms`
       );
@@ -240,12 +240,12 @@ guardianRouter.post("/ingest", async (c) => {
           referenceCompletions
         );
         console.log(
-          `[Guardian Route] [${requestId}] Gemini risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
+          `[Guardian Route] [${requestId}] AI risk analysis complete in ${Date.now() - analysisStartMs}ms ` +
             `- score=${riskPayload.overallRiskScore} flags=${riskPayload.flags.length}`
         );
 
-        // ── Blend Gemini score with live behavioral counters ──
-        // Gemini returns a semantic analysis score (0-100), but repeated
+        // ── Blend GPT-5.6 score with live behavioral counters ──
+        // GPT-5.6 returns a semantic analysis score (0-100), but repeated
         // violations should amplify the risk index. Without this blend,
         // the anomaly gauge stays static (~88) even after 10+ paste events.
         const geminiScore = riskPayload.overallRiskScore; // save original before blend
@@ -256,14 +256,14 @@ guardianRouter.post("/ingest", async (c) => {
         const keystrokePenalty = hasAnomalousKeystrokes(session.keystrokeDeltas) ? 12 : 0;
 
         const behavioralBoost = pastePenalty + tabPenalty + copyPenalty + fsPenalty + keystrokePenalty;
-        // Blend: 85% Gemini score + 15% behavioral boost, capped at 100
+        // Blend: 85% GPT-5.6 score + 15% behavioral boost, capped at 100
         const blendedScore = Math.min(
           Math.round(geminiScore * 0.85 + behavioralBoost * 0.15),
           100
         );
         riskPayload.overallRiskScore = blendedScore;
 
-        // Also boost dimension scores proportionally (using original Gemini score)
+        // Also boost dimension scores proportionally (using original GPT-5.6 score)
         const boostFactor = geminiScore > 0 ? blendedScore / geminiScore : 1.0;
         riskPayload.dimensionScores.dataExfiltration = Math.min(
           Math.round(riskPayload.dimensionScores.dataExfiltration * boostFactor + pastePenalty * 0.8),
@@ -375,7 +375,7 @@ guardianRouter.post("/ingest", async (c) => {
       } catch (analysisError) {
         const msg = analysisError instanceof Error ? analysisError.message : "Unknown analysis error";
         console.error(
-          `[Guardian Route] [${requestId}] Gemini analysis FAILED (non-fatal) - ${msg}`
+          `[Guardian Route] [${requestId}] AI analysis FAILED (non-fatal) - ${msg}`
         );
       }
     }
