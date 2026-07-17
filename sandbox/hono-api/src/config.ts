@@ -107,6 +107,7 @@ export interface AppConfig {
   gemini: GeminiConfig;
   mcp: MCPConfig;
   security: SecurityConfig;
+  datahub: DataHubConfig;
 }
 
 export interface GeminiConfig {
@@ -142,6 +143,17 @@ export interface SecurityConfig {
   minHumanKeystrokeMs: number;
   /** Semantic similarity threshold for plagiarism. */
   plagiarismThreshold: number;
+}
+
+export interface DataHubConfig {
+  /** Whether DataHub integration is enabled. */
+  enabled: boolean;
+  /** DataHub GMS MCP endpoint URL (e.g. https://<tenant>.acryl.io/integrations/ai/mcp). */
+  gmsUrl: string;
+  /** Personal access token for DataHub. */
+  token: string;
+  /** HTTP request timeout in ms. */
+  timeoutMs: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -213,5 +225,22 @@ export function loadConfig(): AppConfig {
     ),
   };
 
-  return { port, gemini, mcp, security };
+  const datahub: DataHubConfig = {
+    enabled: process.env["DATAHUB_ENABLED"] === "true",
+    gmsUrl:
+      process.env["DATAHUB_GMS_URL"] ??
+      "https://<tenant>.acryl.io/integrations/ai/mcp",
+    token: process.env["DATAHUB_TOKEN"] ?? "",
+    timeoutMs: parseInt(process.env["DATAHUB_TIMEOUT_MS"] ?? "8000", 10),
+  };
+
+  if (datahub.enabled && !datahub.token) {
+    console.warn(
+      "[config] DATAHUB_ENABLED=true but DATAHUB_TOKEN is not set. " +
+        "DataHub integration will be disabled."
+    );
+    datahub.enabled = false;
+  }
+
+  return { port, gemini, mcp, security, datahub };
 }

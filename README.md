@@ -1152,6 +1152,62 @@ The Guardian operates as a streaming telemetry event processor:
 
 ---
 
+## 🔗 DataHub MCP Integration — Metadata Enrichment Layer
+
+Cerberus FinSec integrates with **DataHub**, an open-source metadata platform,
+to provide the agent with real-world dataset context for compliance audit
+decisions. When enabled, the agent can query DataHub for:
+
+- **Dataset Schemas**: Understand the structure of financial data assets
+  (trading ledgers, transaction logs, SWIFT gateways) to contextualize
+  compliance audits.
+- **Data Lineage**: Trace how data flows across systems, identifying
+  unauthorized access patterns and data exfiltration vectors.
+- **Ownership & Governance**: Map data assets to responsible teams and
+  compliance domains for automated regulatory mandate assignment.
+- **Glossary Terms**: Standardize compliance terminology (AML, KYC, SOX,
+  GDPR) for consistent risk assessment across the organization.
+
+### How the Agent Uses DataHub
+
+1. **Compliance Matrix Enrichment**: When generating a compliance matrix, the
+   agent queries DataHub for the schema and lineage of the target financial
+   system. This provides real metadata-backed context instead of purely
+   prompt-derived assumptions.
+2. **Insider Threat Context**: During risk assessment, the agent cross-references
+   accessed data assets against their ownership and governance policies in
+   DataHub to detect unauthorized data access patterns.
+3. **Audit Trail Annotation**: Suspicion reports can be annotated with DataHub
+   metadata references (dataset URNs, glossary terms, ownership chains) for
+   richer forensic audit trails.
+
+### Setup
+
+```bash
+# Enable DataHub integration
+DATAHUB_ENABLED=true
+DATAHUB_GMS_URL=https://<tenant>.acryl.io/integrations/ai/mcp
+DATAHUB_TOKEN=<your-personal-access-token>
+DATAHUB_TIMEOUT_MS=8000
+```
+
+Get your access token from: `https://<tenant>.acryl.io/settings/tokens`
+
+**Note**: DataHub integration is **optional**. When `DATAHUB_ENABLED=false` or
+if DataHub is unreachable, the system degrades gracefully — all existing features
+(compliance matrix generation, insider threat detection, session management,
+terminal freezing) continue to function exactly as before with zero impact.
+
+### Resilience
+
+- Connection failures are caught and logged — they never crash the agent pipeline
+- A configurable timeout (`DATAHUB_TIMEOUT_MS`, default 8000ms) prevents hanging
+- Health endpoint reports DataHub connectivity status without blocking
+- All DataHub operations are non-blocking — the agent falls back to
+  prompt-only mode when enrichment is unavailable
+
+---
+
 ## 📋 Hackathon Compliance Checklist
 
 | Rule | Status | Evidence |

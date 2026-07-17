@@ -27,6 +27,7 @@ import { guardianRouter } from "./routes/guardian.js";
 import { reviewRouter } from "./routes/review.js";
 import { identityRouter } from "./routes/identity.js";
 import { loadConfig, warmUpADC } from "./config.js";
+import { initDataHubClient } from "./agents/datahub-client.js";
 
 // ─── Configuration ─────────────────────────────────────────────────
 
@@ -36,6 +37,14 @@ const config = loadConfig();
 // Eliminates the GCP metadata server cold-start race condition.
 
 await warmUpADC();
+
+// ─── DataHub MCP Integration ───────────────────────────────────────
+// Initialize the DataHub metadata enrichment client.
+// When configured, this provides the agent with real-world dataset
+// schemas, lineage, and ownership context for compliance decisions.
+// Gracefully degrades if DataHub is unreachable or not configured.
+
+initDataHubClient(config.datahub);
 
 // ─── Application ───────────────────────────────────────────────────
 
