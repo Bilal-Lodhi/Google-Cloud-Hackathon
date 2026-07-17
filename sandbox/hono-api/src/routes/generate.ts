@@ -607,13 +607,16 @@ generateRouter.post("/", async (c) => {
     );
 
     // Check if this was a user-initiated cancellation
-    const isCancelled = message.includes("cancelled by user");
+    const isCancelled =
+      message.includes("cancelled") ||
+      message.includes("aborted") ||
+      abortController.signal.aborted;
 
     if (isCancelled) {
       return c.json(
         {
           success: false,
-          error: "Generation cancelled by user. You can resume later.",
+          error: "Generation cancelled. You can resume later.",
           correlationId: requestId,
           cancelled: true,
           pipeline: buildPipelineDiag(

@@ -72,7 +72,7 @@ try {
     problemCount = 5
     difficultyMix = @{ beginner=0.33; intermediate=0.34; advanced=0.33 }
   } | ConvertTo-Json
-  $r = Invoke-RestMethod -Uri "$BaseUrl/api/v1/generate" -Method POST -ContentType "application/json" -Body $body -TimeoutSec 120
+  $r = Invoke-RestMethod -Uri "$BaseUrl/api/v1/generate" -Method POST -ContentType "application/json" -Body $body -TimeoutSec 180
   $matrixId = $r.matrix.metadata.matrixId
   Write-Host "  ✅ PASS — matrixId: $matrixId" -ForegroundColor Green
   $Passed++

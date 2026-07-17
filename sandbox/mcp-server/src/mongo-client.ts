@@ -108,13 +108,20 @@ export class MongoStore {
   // ─── Session Operations ────────────────────────────────────────
 
   async createSession(session: Document): Promise<string> {
-    const result = await this.collection("sessions").insertOne({
-      ...session,
-      status: "in_progress",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    return result.insertedId.toString();
+    const now = new Date();
+    await this.collection("sessions").updateOne(
+      { sessionId: session.sessionId },
+      {
+        $setOnInsert: {
+          ...session,
+          status: "in_progress",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { upsert: true }
+    );
+    return session.sessionId as string;
   }
 
   async getSession(sessionId: string): Promise<Document | null> {

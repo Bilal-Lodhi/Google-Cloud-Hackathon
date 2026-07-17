@@ -202,7 +202,7 @@ export class GeminiClient {
     signal?: AbortSignal,
   ): Promise<string> {
     if (signal?.aborted) {
-      throw new Error("Compliance matrix generation cancelled by user");
+      throw new Error("Operation cancelled");
     }
 
     const backendLabel = "OpenAI API";
@@ -212,7 +212,7 @@ export class GeminiClient {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (signal?.aborted) {
-        throw new Error("Compliance matrix generation cancelled by user");
+        throw new Error("Operation cancelled");
       }
       try {
         console.log(
@@ -230,6 +230,8 @@ export class GeminiClient {
             { role: "user", content: userMessage },
           ],
           response_format: { type: "json_object" },
+        }, {
+          signal,
         });
 
         const elapsedMs = Date.now() - startMs;
@@ -257,6 +259,8 @@ export class GeminiClient {
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userMessage },
               ],
+            }, {
+              signal,
             });
             const retryText = retryCompletion.choices[0]?.message?.content ?? "";
             const retryElapsed = Date.now() - retryStart;
