@@ -157,7 +157,7 @@ async function chatCompletion(
   const response = await client.chat.completions.create({
     model,
     temperature,
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

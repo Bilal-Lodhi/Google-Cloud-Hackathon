@@ -224,7 +224,7 @@ export class GeminiClient {
         const completion = await this.openai.chat.completions.create({
           model: this.model,
           temperature: this.temperature,
-          max_tokens: this.maxOutputTokens,
+          max_completion_tokens: this.maxOutputTokens,
           messages: [
             { role: "system", content: systemInstruction },
             { role: "user", content: userMessage },
@@ -252,7 +252,7 @@ export class GeminiClient {
             const retryCompletion = await this.openai.chat.completions.create({
               model: this.model,
               temperature: this.temperature,
-              max_tokens: this.maxOutputTokens,
+              max_completion_tokens: this.maxOutputTokens,
               messages: [
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userMessage },
