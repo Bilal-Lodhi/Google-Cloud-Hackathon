@@ -1,8 +1,8 @@
 /**
- * Gorilla Agent Ecosystem — Hono API Entry Point
- * Google Cloud Rapid Agent Hackathon 2026 — MongoDB Partner Track
+ * Cerberus FinSec Agent Ecosystem — Hono API Entry Point
+ * DataHub Connected Agent Ecosystem 2026 — Financial Services Compliance Track
  *
- * This serverless-first Hono application runs on Google Cloud Run and
+ * This serverless-first Hono application runs on any container platform and
  * exposes three core agent capabilities:
  *
  *   1. POST /api/v1/generate         — Autonomous Test Suite Generator
@@ -12,6 +12,7 @@
  * Architecture:
  *   Hono (routing) → GeminiClient (native fetch to Gemini 3 Flash Preview)
  *                  → MCP Server (MongoDB Atlas persistence layer)
+ *                  → DataHub MCP Client (schema, lineage, ownership enrichment)
  *
  * Zero legacy dependencies. Pure TypeScript + native Web APIs.
  */
@@ -133,8 +134,8 @@ if (isMainModule) {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║  🔒 Cerberus FinSec — Insider Threat & Data Exfiltration    ║
-║  Guardian v1.0.0 | Google Cloud Financial Services Track     ║
-║  Gemini 3 Flash Preview | MongoDB Atlas                      ║
+║  Guardian v1.0.0 | DataHub Connected Agent Ecosystem        ║
+║  Gemini 3 Flash Preview | MongoDB Atlas | DataHub           ║
 ║──────────────────────────────────────────────────────────────║
 ║  Health:  http://localhost:${config.port}/health             ║
 ║  API v1:  http://localhost:${config.port}/api/v1/            ║

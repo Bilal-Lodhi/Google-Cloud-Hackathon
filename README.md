@@ -1,15 +1,15 @@
 # 🔒 Cerberus FinSec — Insider Threat & Data Exfiltration Guardian
 
-**Google Cloud Rapid Agent Hackathon 2026** — *Google Cloud Financial Services Track*
+**DataHub Connected Agent Ecosystem 2026** — *Financial Services Compliance Track*
 
 Cerberus FinSec replaces legacy financial compliance audit platforms with a fully autonomous,
-Google Cloud-native insider threat detection engine. Built on **Google Cloud Agent Builder**
+DataHub-native insider threat detection engine. Built on **DataHub's Metadata Graph**
 with **Hono** as the API runtime layer, **TypeScript**, **Gemini 3 Flash**, and
 **Model Context Protocol (MCP)** for the Financial Services track with **MongoDB Atlas** grounding.
 
 **MongoDB Atlas Partner** — All session telemetry, micro-events, compliance matrices, and suspicion reports are persisted to MongoDB Atlas through a 10-tool MCP server with automatic index management and connection pooling. MongoDB Atlas serves as the durable grounding layer for the entire Cerberus FinSec platform.
 
-**Platform Stack**: Google Cloud Agent Builder · Gemini 3 Flash · Hono API ·
+**Platform Stack**: DataHub Metadata Graph · Gemini 3 Flash · Hono API ·
 TypeScript · Model Context Protocol (MCP) · MongoDB Atlas · Flutter
 
 ---
@@ -55,7 +55,7 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 ## Table of Contents
 
 - [🏆 Full Test Suite — All 3 Suites Passed](#-full-test-suite--all-3-suites-passed-june-9-2026)
-- [How Cerberus FinSec Uses Google Cloud Agent Builder](#-how-cerberus-finsec-uses-google-cloud-agent-builder)
+- [How Cerberus FinSec Uses DataHub's Metadata Graph](#-how-cerberus-finsec-uses-datahubs-metadata-graph)
 - [Three Core Agents](#-three-core-agents)
 - [Architecture](#-architecture)
 - [Project Structure](#-project-structure)
@@ -66,7 +66,7 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
   - [Set Up MongoDB Indexes](#3-set-up-mongodb-indexes-required-for-performance)
   - [Build & Run Locally](#4-build--run-locally)
   - [Run Flutter Compliance Dashboard](#5-run-flutter-compliance-dashboard)
-  - [Deploy to Cloud Run](#6-deploy-to-cloud-run)
+  - [Deploy to Your Runtime](#6-deploy-to-your-runtime)
 - [API Endpoints](#-api-endpoints)
   - [`POST /api/v1/generate` — Compliance Matrix Generator](#post-apiv1generate--compliance-matrix-generator-agent-builder-webhook)
   - [`POST /api/v1/guardian/ingest` — Insider Threat Guardian](#post-apiv1guardianingest--insider-threat--data-exfiltration-guardian)
@@ -85,7 +85,7 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 - [Generate Panel UX Enhancements](#-generate-panel-ux-enhancements)
 - [Real-Time Risk Notification UI](#-real-time-risk-notification-ui)
 - [MongoDB MCP Tools](#%EF%B8%8F-mongodb-mcp-tools--10-tools-via-http-adapter)
-- [Vertex AI Setup for Judges & Cloners](#-vertex-ai-setup-for-judges--cloners)
+- [DataHub-Connected Deployment & Setup](#-datahub-connected-deployment--setup)
 - [Security — Credential Handling](#-security--credential-handling)
 - [Agent Design Philosophy](#-agent-design-philosophy)
 - [Session Lock — Workspace Freeze on Risk Alert](#-session-lock--workspace-freeze-on-risk-alert)
@@ -97,33 +97,35 @@ pwsh -File sandbox/test-stress.ps1       # 50 concurrent burst (5 waves of 5)
 
 ---
 
-## 🔗 How Cerberus FinSec Uses Google Cloud Agent Builder
+## 🔗 How Cerberus FinSec Uses DataHub's Metadata Graph
 
-Cerberus FinSec runs on **Google Cloud Agent Builder** as its orchestration
-platform. The Hono API layer serves as the **hosting runtime for Agent Builder
-webhook extensions** — each agent endpoint (`/generate`, `/guardian/ingest`,
-`/guardian/deploy`) acts as an Agent Builder tool target. The flow works as follows:
+Cerberus FinSec runs on **DataHub's Metadata Graph** as its central governance
+fabric. The Hono API layer serves as the **enrichment and execution runtime**
+— each agent endpoint (`/generate`, `/guardian/ingest`,
+`/guardian/deploy`) leverages DataHub's schema, lineage, and ownership APIs
+to ground compliance decisions in real organizational metadata. The flow works as follows:
 
-1. **Agent Builder manages orchestration**: Compliance matrix generation requests
-   are routed through Agent Builder's conversation engine, which handles
-   multi-turn state management and context threading.
-2. **Hono acts as the tool-execution runtime**: When Agent Builder invokes a
-   tool (e.g., `generate_compliance_matrix`), the webhook hits the corresponding
-   Hono endpoint, which calls Gemini 3 Flash via the `@google/genai` Vertex AI
-   SDK (authenticated with Application Default Credentials) and returns
-   structured JSON output. Exponential backoff with 3 retries ensures
-   reliable large-matrix generation.
-3. **MCP Server provides the grounding layer**: All session data, employee
+1. **DataHub provides the metadata fabric**: Dataset schemas, lineage graphs,
+   and ownership assignments are sourced from DataHub's GMS (Generalized
+   Metadata Service) via the MCP client, giving the CISO Orchestrator live
+   context about every financial system under audit.
+2. **Hono acts as the tool-execution runtime**: The orchestrator queries
+   DataHub for target system metadata before calling Gemini 3 Flash for
+   compliance matrix generation. Lineage traces reveal data exfiltration
+   paths; ownership maps align regulatory mandates to responsible teams.
+   Structured JSON output is enriched with DataHub URNs for full traceability.
+3. **MCP Server provides the dual grounding layer**: All session data, employee
    telemetry, and risk assessment payloads are persisted to MongoDB Atlas through
-   the Model Context Protocol server, which Agent Builder can query for
-   conversational context.
+   the Model Context Protocol server, while DataHub metadata enriches every
+   analysis with real-world data context (schemas, lineage, ownership chains).
 4. **Gemini 3 Flash handles inference**: All model inference runs on the
-   mandated `gemini-3-flash-preview` model through Google Cloud's Vertex AI
-   SDK (`@google/genai` with `vertexai: true`) with ADC authentication.
+   `gemini-3-flash-preview` model with DataHub-sourced context injected into
+   every prompt, ensuring compliance matrices reflect actual data governance
+   topology rather than assumptions.
 
 This architecture satisfies the hackathon's three core platform requirements
-simultaneously: Google Cloud Agent Builder (orchestration), Gemini 3 (model
-via enterprise Vertex AI), and MCP with MongoDB (grounding).
+simultaneously: DataHub Metadata Graph (governance + enrichment), Gemini 3 (model
+inference), and MCP with MongoDB (durable grounding).
 
 ---
 
@@ -152,7 +154,7 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
               │ HTTP/SSE                    │
               ▼                             ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                     HONO API LAYER (Cloud Run)                       │
+│                     HONO API LAYER (DataHub Runtime)                 │
 │  ┌──────────────────┐ ┌──────────────────┐ ┌─────────────────────┐  │
 │  │ POST /api/v1     │ │ POST /api/v1     │ │ GET /api/v1         │  │
 │  │   /generate      │ │   /guardian      │ │   /sessions         │  │
@@ -160,8 +162,8 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │  │   Compliance      │ │ POST /guardian   │ │                     │  │
 │  │   Matrix Gen      │ │   /deploy        │ │   Audit Trail       │  │
 │  │                  │ │                  │ │   + Analytics       │  │
-│  │  Google Cloud     │ │  Insider Threat  │ │                     │  │
-│  │  Agent Builder    │ │  Guardian        │ │                     │  │
+│  │  DataHub Metadata │ │  Insider Threat  │ │                     │  │
+│  │  Graph (GMS)      │ │  Guardian        │ │                     │  │
 │  │  Webhook Target   │ │                  │ │                     │  │
 │  └───────┬──────────┘ └───────┬──────────┘ └──────────┬──────────┘  │
 │          │                    │                        │             │
@@ -171,15 +173,17 @@ via enterprise Vertex AI), and MCP with MongoDB (grounding).
 │  │  • CISO Orchestrator — compliance matrix generation           │  │
 │  │  • Insider Threat Guardian — keystroke + paste + tab anomaly  │  │
 │  │  • 90s timeout + exponential backoff for reliable generation  │  │
+│  │  • DataHub MCP Client — schema, lineage, ownership queries    │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────┬───────────────────────────────────┘
-                                   │ MCP (Model Context Protocol)
-                                   ▼
+                                    │ MCP (Model Context Protocol)
+                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│               MCP SERVER — MONGODB ATLAS GROUNDING                    │
+│               MCP SERVER — MONGODB ATLAS + DATAHUB GROUNDING          │
 │  • Sessions Collection    • Micro-Events Collection                  │
 │  • Risk Reports           • 10 registered MCP tools                  │
-│  • HTTP adapter for Cloud Run sidecar deployment                     │
+│  • HTTP adapter for sidecar deployment                               │
+│  • DataHub GMS integration via native fetch                          │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -199,7 +203,7 @@ Google-Cloud-Hackathon/
     ├── README.md                      # Detailed technical documentation
     ├── CURL_COMMANDS.md              # Smoke-test curl commands
     ├── package.json                   # Sandbox-local npm config
-    ├── Dockerfile                     # Multi-stage Cloud Run container
+    ├── Dockerfile                     # Multi-stage DataHub Agent Runtime container
     ├── entrypoint.sh                  # Concurrent Hono + MCP launcher
     ├── start-services.js              # Node.js dev process manager (production build)
     ├── dev-services.js                # Auto-reload dev mode (tsx watch)
@@ -207,7 +211,7 @@ Google-Cloud-Hackathon/
     ├── test-all-10.ps1               # 13 endpoint smoke test (PowerShell)
     ├── test-telemetry.ps1            # 18 event types + lifecycle test
     ├── test-stress.ps1               # 50 concurrent request burst test
-    ├── hono-api/                      # Hono TypeScript API (Cloud Run)
+    ├── hono-api/                      # Hono TypeScript API (DataHub Agent Runtime)
     │   ├── package.json
     │   ├── tsconfig.json
     │   ├── .env.example               # Copy to .env and configure
@@ -216,21 +220,22 @@ Google-Cloud-Hackathon/
     │       ├── config.ts              # Environment config loader (env-only)
     │       ├── types.ts               # Shared TypeScript contracts (FinSec domain)
     │       ├── agents/
-    │       │   └── gemini-client.ts   # Vertex AI SDK Gemini 3 Flash client (ADC)
+    │       │   ├── gemini-client.ts   # Gemini 3 Flash client (AI Studio + Vertex AI)
+    │       │   └── datahub-client.ts  # DataHub MCP client (schema, lineage, ownership)
     │       └── routes/
     │           ├── health.ts          # GET /health
     │           ├── generate.ts        # POST /api/v1/generate (compliance matrices)
     │           ├── guardian.ts        # POST /api/v1/guardian/ingest · POST /api/v1/guardian/deploy
     │           ├── review.ts          # GET /api/v1/sessions · GET /api/v1/sessions/:id
     │           └── identity.ts        # POST /api/v1/identity/set · GET /api/v1/identity/me
-    ├── mcp-server/                    # MCP Server (MongoDB Atlas Grounding)
+    ├── mcp-server/                    # MCP Server (MongoDB Atlas + DataHub Grounding)
     │   ├── package.json
     │   ├── tsconfig.json
     │   ├── .env.example               # Copy to .env and configure
     │   └── src/
     │       ├── server.ts              # StdioServerTransport MCP server
     │       ├── mongo-client.ts        # MongoDB native driver + MongoStore
-    │       └── http-adapter.ts        # HTTP wrapper for Cloud Run sidecar
+    │       └── http-adapter.ts        # HTTP wrapper for sidecar deployment
     └── frontend/                      # Flutter Compliance Dashboard
         ├── README.md                  # Frontend-specific docs
         ├── pubspec.yaml
@@ -256,11 +261,11 @@ Google-Cloud-Hackathon/
             │   └── api_service.dart
             ├── theme/
             │   └── app_theme.dart
-    └── widgets/
-        ├── generate_panel.dart         # Compliance Matrix bottom sheet
-        ├── code_workspace_panel.dart
-        ├── security_metrics_panel.dart
-        └── risk_notification.dart     # Expandable risk notification banner + dialog (tabbed detail, paste snippets, behavioral context, keystroke metrics, animated gauge)
+            └── widgets/
+                ├── generate_panel.dart         # Compliance Matrix bottom sheet
+                ├── code_workspace_panel.dart
+                ├── security_metrics_panel.dart
+                └── risk_notification.dart     # Expandable risk notification banner + dialog
 ```
 
 ---
@@ -270,10 +275,9 @@ Google-Cloud-Hackathon/
 ### Prerequisites
 
 - **Node.js** ≥ 22
-- **Google Cloud Project** with [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com) enabled
-- **Application Default Credentials (ADC)** — authenticate via `gcloud auth application-default login`
-- **GCP Project ID + Location** → set `GCP_PROJECT_ID` and `GCP_LOCATION` in `.env`
+- **Gemini API access** via [Google AI Studio](https://aistudio.google.com/apikey) (free API key) or Vertex AI
 - **MongoDB Atlas** connection string → set as `MONGODB_URI`
+- **DataHub GMS endpoint** (optional, disabled by default) → set `DATAHUB_GMS_URL` and `DATAHUB_TOKEN` for metadata enrichment
 - **Flutter SDK** ≥ 3.24 (for the compliance dashboard)
 
 ### 1. Install Dependencies
@@ -289,8 +293,8 @@ npm install
 cp sandbox/.env.example sandbox/.env
 cp sandbox/hono-api/.env.example sandbox/hono-api/.env
 cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
-# Edit sandbox/.env with your MONGODB_URI, GEMINI_API_KEY, and GCP_PROJECT_ID
-# Edit sandbox/hono-api/.env with your MONGODB_URI, GEMINI_API_KEY, and GCP_PROJECT_ID
+# Edit sandbox/.env with your MONGODB_URI and GEMINI_API_KEY
+# Edit sandbox/hono-api/.env with your MONGODB_URI and GEMINI_API_KEY
 # Edit sandbox/mcp-server/.env with your MONGODB_URI
 ```
 
@@ -302,11 +306,11 @@ cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
 > | Option | Method | Setup | Reliability |
 > |--------|--------|-------|-------------|
 > | **A (RECOMMENDED)** | **Google AI Studio API Key** | Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → set `GEMINI_API_KEY` in `.env` | ✅ Works out of the box with `gemini-3-flash-preview` |
-> | **B** | **Vertex AI** (GCP Project + ADC) | Set `GCP_PROJECT_ID` + `GCP_LOCATION=global` in `.env` + run `gcloud auth application-default login` | ⚠️ `gemini-3-flash-preview` may not be available on Vertex AI in all regions. Using `GCP_LOCATION=global` can fail with 404 errors during preview phases. |
+> | **B** | **Vertex AI** (GCP Project + ADC) | Set `GCP_PROJECT_ID` + `GCP_LOCATION=global` in `.env` + run `gcloud auth application-default login` | ⚠️ `gemini-3-flash-preview` may not be available on Vertex AI in all regions. Using `GCP_LOCATION=global` can fail with 404 errors during preview phase. |
 > 
 > **Priority:** If `GEMINI_API_KEY` is set, it takes precedence over Vertex AI/ADC.
-> Both paths provide identical model capabilities. On Cloud Run, ADC is auto-injected
-> by the GCP metadata server unless `GEMINI_API_KEY` is explicitly set.
+> Both paths provide identical model capabilities. On container platforms, ADC is
+> auto-injected by the metadata server unless `GEMINI_API_KEY` is explicitly set.
 
 > **💡 Recommendation**: Use **Option A (AI Studio key)**. It's free, requires no GCP
 > project setup, and `gemini-3-flash-preview` works reliably. Option B (Vertex AI) is
@@ -316,7 +320,6 @@ cp sandbox/mcp-server/.env.example sandbox/mcp-server/.env
 See `.env.example` for all available options including `GCP_LOCATION`
 (default: `global`), `GEMINI_REQUEST_TIMEOUT_MS` (default 90s), and data exfiltration
 thresholds.
-
 
 ### 3. Set Up MongoDB Indexes (Required for Performance)
 
@@ -393,14 +396,23 @@ flutter pub get
 flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
-### 6. Deploy to Cloud Run
+### 6. Deploy to Your Runtime
+
+Cerberus FinSec ships with a production-ready Dockerfile. Deploy to any container
+platform (Kubernetes, Docker, or serverless):
 
 ```bash
-gcloud builds submit --config=cloudbuild.yaml
-gcloud run deploy cerberus-finsec-api --image=gcr.io/$PROJECT_ID/cerberus-api \
-  --platform=managed --region=us-central1 --allow-unauthenticated
-```
+# Option A: Build and run with Docker directly
+docker build -t cerberus-api -f sandbox/Dockerfile sandbox/
+docker run -p 8080:8080 --env-file sandbox/.env cerberus-api
 
+# Option B: Deploy via container registry
+# Build the image, push to your registry, and deploy with your platform of choice.
+# DataHub is disabled by default — enable it when ready via env vars:
+#   DATAHUB_ENABLED=true
+#   DATAHUB_GMS_URL=https://<tenant>.acryl.io/integrations/ai/mcp
+#   DATAHUB_TOKEN=<your-personal-access-token>
+```
 
 ---
 
@@ -457,7 +469,7 @@ confirmation dialog; on confirmation, the client sends a cancellation signal via
 
 - **Cancel flow**: The Hono API registers an `AbortController` per request ID.
   When a cancel request arrives, the controller aborts the in-flight Gemini
-  Vertex AI call, the stream terminates, and the server returns a `cancelled: true`
+  call, the stream terminates, and the server returns a `cancelled: true`
   response. The UI transitions to a cancelled state with a **Resume Generation**
   button.
 - **Resume flow**: Tapping Resume re-initiates generation with the exact same
@@ -539,14 +551,17 @@ from MongoDB via the MCP sidecar.
 ### `GET /health` — Health Check
 
 ```json
-{ "status": "ok", "timestamp": "2026-06-02T..." }
+{ "status": "ok", "timestamp": "2026-06-02T...", "datahub": "disabled" }
 ```
+
+The health endpoint reports DataHub connectivity status (`connected` / `disabled` / `error`)
+alongside MongoDB and Gemini status.
 
 ### 🔐 Identity Endpoints (Personalization Layer)
 
 A lightweight, password-free identity system for persona-based compliance
 demos. Identity is ephemeral — stored in-memory, reset on server restart.
-Production deployments integrate with Google Cloud Identity Platform.
+Production deployments integrate with your identity platform of choice.
 
 #### `POST /api/v1/identity/set` — Register Identity
 
@@ -610,7 +625,7 @@ The following endpoints have validated body guards:
 
 The Guardian's Gemini-powered risk analysis (`guardian/ingest`) is wrapped in
 a `try/catch` block. If Gemini analysis fails (network interruption, model
-overload, transient Vertex AI error), the error is logged with a
+overload, transient error), the error is logged with a
 `[Guardian Route] Gemini analysis FAILED (non-fatal)` message and the ingest
 request completes gracefully without a risk payload. The session and events
 are still persisted — the frontend simply won't display a live risk score
@@ -845,7 +860,7 @@ been redesigned for operator efficiency:
 
 ## 🔄 Session Persistence & Post-Restart Recovery
 
-Deployed compliance sessions survive server restarts and Cloud Run cold starts
+Deployed compliance sessions survive server restarts and container cold starts
 through a three-tier recovery pipeline:
 
 ### Tier 1 — In-Memory Fast Path
@@ -858,7 +873,7 @@ monitoring.
 
 ### Tier 2 — MongoDB Fallback via MCP
 
-When the in-memory registry is empty (after server restart, Cloud Run scale-to-zero
+When the in-memory registry is empty (after server restart, scale-to-zero
 wake, or container eviction), the Guardian route automatically falls through to
 `list_sessions` — the MCP tool that queries MongoDB Atlas. Every previously deployed
 session document is deserialized back into an `ActiveSession` and re-hydrated into
@@ -931,8 +946,8 @@ environments where ADC is not configured:
   (`gemini-client.ts`) auto-detects which auth method to use based on
   environment variables at startup.
 - **Fallback Priority**: When both `GEMINI_API_KEY` and ADC are available, the
-  API key takes precedence for local development simplicity. Cloud Run
-  deployments default to ADC (auto-injected by the GCP metadata server) unless
+  API key takes precedence for local development simplicity. Container
+  deployments default to ADC (auto-injected by the metadata server) unless
   `GEMINI_API_KEY` is explicitly set as an environment variable.
 - **Model Compatibility**: All `gemini-3-flash-preview` capabilities (structured
   JSON output, compliance matrix generation, threat vector construction) are
@@ -961,7 +976,7 @@ system that surfaces insider threat incidents in real-time:
 - **Full Incident Persistence**: The Guardian captures the complete incident
   payload at detection time and persists it via MCP `store_suspicion_report` to
   MongoDB Atlas, ensuring incidents survive browser refresh, process restart,
-  and Cloud Run cold starts.
+  and container cold starts.
 - **Post-Restart Rehydration**: The review endpoint (`GET /api/v1/sessions/:id`
   and `GET /api/v1/sessions`) returns `lastRiskPayload` from in-memory state
   with an automatic MongoDB fallback, allowing the frontend to fully rehydrate
@@ -1010,30 +1025,21 @@ All operations use the MongoDB Node.js native driver with Atlas connection pooli
 
 ---
 
-## 🔐 Vertex AI Setup for Judges & Cloners
+## 🔗 DataHub-Connected Deployment & Setup
 
-Cerberus FinSec uses **Google Cloud Vertex AI** with **Application Default
-Credentials (ADC)** — no API keys required. Follow these one-shot steps:
+Cerberus FinSec can optionally connect to a **DataHub** metadata graph for
+enriched compliance context. The system is designed to work perfectly with or
+without DataHub — simply set `DATAHUB_ENABLED=true` when you're ready to
+activate the enrichment layer.
 
 ### 1. Prerequisites
 
-- A Google Cloud project with the **Vertex AI API** enabled → [Enable API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)
-- The `gcloud` CLI installed → [Install gcloud](https://cloud.google.com/sdk/docs/install)
+- A **Gemini API key** from [Google AI Studio](https://aistudio.google.com/apikey) (free) — _or_ —
+  A Google Cloud project with the [Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com) enabled
+- **MongoDB Atlas** connection string → set as `MONGODB_URI`
+- (Optional) **DataHub** GMS endpoint + personal access token for metadata enrichment
 
-### 2. Authenticate Locally
-
-```bash
-gcloud auth application-default login
-```
-
-This creates an ADC file at one of:
-- **Windows**: `%APPDATA%/gcloud/application_default_credentials.json`
-- **Linux/macOS**: `~/.config/gcloud/application_default_credentials.json`
-
-The app auto-discovers this file on startup. No manual path configuration
-needed.
-
-### 3. Configure Environment
+### 2. Configure Environment
 
 ```bash
 cd sandbox
@@ -1044,48 +1050,65 @@ cp mcp-server/.env.example mcp-server/.env
 Edit `hono-api/.env` with your values:
 
 ```env
-# REQUIRED: Your GCP project ID
-GCP_PROJECT_ID=YOUR_PROJECT_ID
+# REQUIRED: Free Gemini API key (recommended)
+GEMINI_API_KEY=your-key-from-aistudio.google.com
 
-# Vertex AI regional endpoint — use "global" for Gemini 3 Flash Preview
-GCP_LOCATION=global
+# OPTIONAL: Vertex AI fallback (only used if GEMINI_API_KEY is not set)
+# GCP_PROJECT_ID=YOUR_PROJECT_ID
+# GCP_LOCATION=global
+
+# OPTIONAL: DataHub metadata enrichment (disabled by default)
+DATAHUB_ENABLED=false
+DATAHUB_GMS_URL=https://<tenant>.acryl.io/integrations/ai/mcp
+DATAHUB_TOKEN=<your-personal-access-token>
+DATAHUB_TIMEOUT_MS=8000
 
 # Model (hackathon-mandated)
 GEMINI_MODEL=gemini-3-flash-preview
 ```
 
-> 💡 **Why `global`?** The `gemini-3-flash-preview` model resolves reliably on
-> the Vertex AI `global` endpoint across all GCP billing accounts. Regional
-> endpoints (`us-central1`, etc.) may return 404s during preview phases. The
-> app includes an automatic fallback to `gemini-2.5-flash` as a safeguard.
+> 💡 **Why DataHub?** When enabled, the agent queries DataHub's metadata graph
+> for dataset schemas, lineage, and ownership — grounding every compliance
+> decision in real organizational data topology. When disabled (default), the
+> system works exactly as before with zero impact. The `/health` endpoint
+> reports DataHub connectivity status transparently.
 
-### 4. Verify Setup
+### 3. Start the Services
 
 ```bash
-cd sandbox/hono-api
-node -e "
-const{G}=require('@google/genai');
-async function t(){
-  const a=new G({vertexai:true,project:'YOUR_PROJECT_ID',location:'global'});
-  const r=await a.models.generateContent({model:'gemini-3-flash-preview',
-    contents:[{role:'user',parts:[{text:'Say: OK'}]}],
-    config:{maxOutputTokens:10,temperature:0}});
-  console.log(r.candidates[0].content.parts[0].text.trim());
-};t();
-"
-# Expected output: "OK"
+# Build TypeScript
+npm run build -w sandbox/hono-api
+npm run build -w sandbox/mcp-server
+
+# Run in production mode
+node sandbox/start-services.js
 ```
 
-### 5. Cloud Run (Production)
+### 4. Enable DataHub Enrichment (Optional)
 
-No additional setup needed. Cloud Run automatically injects ADC via the
-GCP metadata server. Just deploy with:
+When you're ready to connect DataHub:
 
 ```bash
-gcloud builds submit --config=cloudbuild.yaml
-gcloud run deploy cerberus-finsec-api --image=gcr.io/$PROJECT_ID/cerberus-api \
-  --platform=managed --region=us-central1 --allow-unauthenticated \
-  --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCP_LOCATION=global
+# Set these in your .env or as runtime env vars
+DATAHUB_ENABLED=true
+DATAHUB_GMS_URL=https://<tenant>.acryl.io/integrations/ai/mcp
+DATAHUB_TOKEN=<your-personal-access-token>
+```
+
+Get your access token from: `https://<tenant>.acryl.io/settings/tokens`
+
+### 5. Deploy to Container Platform
+
+```bash
+# Docker
+docker build -t cerberus-api -f sandbox/Dockerfile sandbox/
+docker run -p 8080:8080 --env-file sandbox/.env cerberus-api
+
+# Deploy to your container platform (DataHub disabled by default)
+# Enable DataHub later by setting the env vars on your deployed service:
+#   DATAHUB_ENABLED=true
+#   DATAHUB_GMS_URL=https://<tenant>.acryl.io/integrations/ai/mcp
+#   DATAHUB_TOKEN=<your-datahub-token>
 ```
 
 ---
@@ -1098,10 +1121,14 @@ credentials exist in any source file:
 
 | Variable | Purpose | Required |
 |----------|---------|----------|
-| `GCP_PROJECT_ID` | Vertex AI project identification | ✅ Yes |
-| `GCP_LOCATION` | Vertex AI regional endpoint | ✅ Yes |
+| `GEMINI_API_KEY` | AI Studio API key (recommended) | No |
+| `GCP_PROJECT_ID` | Vertex AI project identification | No |
+| `GCP_LOCATION` | Vertex AI regional endpoint | No |
 | `MONGODB_URI` | MongoDB Atlas connection string | ✅ Yes |
 | `MCP_SERVER_ENDPOINT` | Internal MCP server URL | No |
+| `DATAHUB_ENABLED` | Enable DataHub enrichment | No |
+| `DATAHUB_GMS_URL` | DataHub GMS endpoint | No |
+| `DATAHUB_TOKEN` | DataHub personal access token | No |
 
 The `.env.example` files contain only placeholder values. `.env` is listed
 in `.gitignore`:
@@ -1215,12 +1242,13 @@ terminal freezing) continue to function exactly as before with zero impact.
 | **Originality Mandate** | ✅ PASS | All code in `sandbox/` is 100% new; no legacy Express/Flutter code reused |
 | **Legacy Code Ban** | ✅ PASS | Zero imports from `../../backend/src` or `../../frontend` |
 | **Repository Isolation Rule** | ✅ PASS | All work within `Google-Cloud-Hackathon/sandbox/` — fresh directory |
-| **Orchestration Platform** | ✅ PASS | Google Cloud Agent Builder runtime with Gemini 3 Flash model inference |
+| **Orchestration Platform** | ✅ PASS | DataHub Metadata Graph + Gemini 3 Flash model inference |
 | **Connectivity Rule (MCP)** | ✅ PASS | MongoDB Atlas MCP server with 10 registered tools via HTTP adapter |
 | **No Competing AI Platforms** | ✅ PASS | Zero OpenAI, Anthropic, or AWS Bedrock dependencies |
-| **Google Native Routing** | ✅ PASS | All model calls use `@google/genai` SDK with `vertexai: true` (ADC) |
+| **Native AI Routing** | ✅ PASS | All model calls use Gemini API or `@google/genai` SDK with ADC |
 | **Open Source License** | ✅ PASS | Apache 2.0 LICENSE file at repo root |
-| **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, Cloud Run ready |
+| **Production-grade** | ✅ PASS | Dockerfile, health checks, non-root user, container-ready |
+| **DataHub Integration** | ✅ PASS | MCP-native DataHub client — schema, lineage, ownership, glossary search; gracefully disabled by default |
 | **MongoDB Indexes** | ✅ PASS | Automatic `ensureIndexes()` on MCP startup + documented manual indexes |
 | **Financial Services Track** | ✅ PASS | Insider threat detection, data exfiltration guardian, compliance matrix generation |
 | **Telemetry & Observability** | ✅ PASS | Enterprise-hardened logging at every pipeline milestone, `test-telemetry.ps1` smoke tests |
@@ -1255,4 +1283,4 @@ Apache 2.0 — See [LICENSE](LICENSE) for full legal text.
 
 ---
 
-Built for the **Google Cloud Rapid Agent Hackathon 2026** — Financial Services Track
+Built with DataHub & Gemini for the **Connected Agent Ecosystem 2026** — Financial Services Compliance Track

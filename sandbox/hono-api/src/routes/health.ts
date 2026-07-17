@@ -23,8 +23,8 @@ healthRouter.get("/", async (c) => {
     status: "healthy",
     service: "cerberus-finsect",
     version: "1.0.0",
-    platform: "Google Cloud Run",
-    modelProvider: "Gemini 3 Flash Preview (Vertex AI / Gemini API)",
+    platform: "DataHub Runtime",
+    modelProvider: "Gemini 3 Flash Preview — DataHub Enriched",
     mcpTrack: "MongoDB Atlas",
     integrations: {
       datahub: datahubStatus,

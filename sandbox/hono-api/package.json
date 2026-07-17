@@ -1,8 +1,8 @@
 {
-  "name": "gorilla-agent-hono-api",
+  "name": "cerberus-hono-api",
   "version": "1.0.0",
   "private": true,
-  "description": "Serverless Hono API with Gemini agent orchestration and MCP connectivity for the MongoDB track",
+  "description": "Cerberus FinSec Hono API — Gemini agent orchestration with MCP MongoDB + DataHub metadata enrichment for financial services compliance",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

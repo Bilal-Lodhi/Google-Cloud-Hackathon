@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Cerberus AI — Cloud Build Configuration
-# Google Cloud Rapid Agent Hackathon 2026
+# Cerberus FinSec — Cloud Build Configuration
+# DataHub Connected Agent Ecosystem 2026
 # Builds the multi-stage Docker image → pushes → ready for Cloud Run deploy
 # ─────────────────────────────────────────────────────────────────────────────
 

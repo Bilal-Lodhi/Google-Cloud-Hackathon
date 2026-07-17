@@ -1,8 +1,8 @@
 {
-  "name": "google-cloud-rapid-agent-hackathon",
+  "name": "cerberus-finsec-datahub-ecosystem",
   "version": "1.0.0",
   "private": true,
-  "description": "Cerberus FinSec — Insider threat & data exfiltration guardian for financial services compliance",
+  "description": "DataHub Connected Agent Ecosystem — Cerberus FinSec insider threat & data exfiltration guardian for financial services compliance",
   "license": "Apache-2.0",
   "workspaces": [
     "sandbox/hono-api",

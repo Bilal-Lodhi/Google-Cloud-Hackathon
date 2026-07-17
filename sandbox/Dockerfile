@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Cerberus AI — Production Multi-Stage Dockerfile
-# Google Cloud Rapid Agent Hackathon 2026
-# Target:  Google Cloud Run (serverless container)
+# DataHub Connected Agent Ecosystem 2026
+# Target:  DataHub Agent Runtime (serverless container)
 # Stack:   Node.js 22 Alpine | Hono API :8080 | MCP Server :3001
-# Track:   MongoDB Atlas (Model Context Protocol)
+# Track:   MongoDB Atlas + DataHub MCP (Model Context Protocol)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ═══════════════════════════════════════════════════════════════════════════════

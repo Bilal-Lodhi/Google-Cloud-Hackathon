@@ -1,9 +1,9 @@
 {
-  "name": "cerberus-ai",
+  "name": "cerberus-finsec-datahub",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Cerberus FinSec — Insider Threat & Data Exfiltration Guardian for Google Cloud Rapid Agent Hackathon 2026 (MongoDB Partner Track)",
+  "description": "Cerberus FinSec — Insider Threat & Data Exfiltration Guardian | DataHub Connected Agent Ecosystem — Financial Services Compliance Track",
   "workspaces": [
     "hono-api",
     "mcp-server"
@@ -18,7 +18,7 @@
     "dev:mcp": "npm run dev -w mcp-server",
     "start": "node start-services.js",
     "test:smoke": "npm run test:smoke -w hono-api",
-    "deploy": "gcloud builds submit --tag gcr.io/$PROJECT_ID/cerberus-ai . && gcloud run deploy cerberus-ai --image gcr.io/$PROJECT_ID/cerberus-ai --platform managed --region us-central1 --allow-unauthenticated --port 8080"
+    "deploy": "gcloud builds submit --tag gcr.io/$PROJECT_ID/cerberus-ai . && gcloud run deploy cerberus-ai --image gcr.io/$PROJECT_ID/cerberus-ai --platform managed --region us-central1 --allow-unauthenticated --port 8080 --set-env-vars=DATAHUB_ENABLED=false"
   },
   "dependencies": {
     "dotenv": "^16.6.1"
