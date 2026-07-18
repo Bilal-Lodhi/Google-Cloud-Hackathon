@@ -424,3 +424,41 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   const denominator = Math.sqrt(normA) * Math.sqrt(normB);
   return denominator === 0 ? 0 : dotProduct / denominator;
 }
+
+/** Public JSON-mode helper for route-specific agent workflows. */
+export async function generateJsonResponse(
+  systemPrompt: string,
+  userPrompt: string,
+  config: AppConfig,
+  options?: { temperature?: number; maxTokens?: number }
+): Promise<string> {
+  return withRetry(
+    () => chatCompletion(systemPrompt, userPrompt, config, options),
+    "generateJsonResponse"
+  );
+}
+
+/** Public plain-text helper for human-readable summaries. */
+export async function generateTextResponse(
+  systemPrompt: string,
+  userPrompt: string,
+  config: AppConfig,
+  options?: { temperature?: number; maxTokens?: number }
+): Promise<string> {
+  const client = getClient();
+  const response = await withRetry(
+    () => client.chat.completions.create({
+      model: config.openai.model,
+      temperature: options?.temperature ?? config.openai.temperature,
+      max_completion_tokens: options?.maxTokens ?? config.openai.maxOutputTokens,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+    "generateTextResponse"
+  );
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("[openai-client] Empty text response from OpenAI API");
+  return content;
+}

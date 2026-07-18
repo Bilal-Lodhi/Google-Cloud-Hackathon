@@ -24,6 +24,8 @@ import { GeminiClient } from "../agents/gemini-client.js";
 import { loadConfig } from "../config.js";
 import { toISOStringLocal, formatLocalTime } from "../utils/time.js";
 import * as crypto from "node:crypto";
+import { generateJsonResponse, initializeClient } from "../agents/openai-client.js";
+import { notifySlack, sendEmail } from "../services/notifications.js";
 
 const guardianRouter = new Hono();
 const config = loadConfig();
@@ -360,6 +362,18 @@ guardianRouter.post("/ingest", async (c) => {
         //   2. MongoDB session document             (durable, survives restart)
         //   3. Flutter dashboard via SSE + GET /sessions  (visual indicator)
         if (riskPayload.overallRiskScore >= 75) {
+          riskPayload.recommendedActions = await generateRecommendedActions(riskPayload);
+          await Promise.all([
+            notifySlack(process.env["SLACK_WEBHOOK_URL"] ?? "", riskPayload),
+            sendEmail(
+              process.env["SENDGRID_API_KEY"] ?? "",
+              process.env["EMAIL_FROM"] ?? "",
+              process.env["EMAIL_TO"] ?? "",
+              riskPayload
+            ),
+          ]);
+          session.lastRiskPayload = riskPayload;
+          sessionStore.set(sessionId, session);
           await lockSession(sessionId, riskPayload, requestId);
         } else if (riskPayload.overallRiskScore < 25) {
           // If risk drops below 25 after previously being above 75,
@@ -1086,6 +1100,24 @@ async function lockSession(
   console.log(
     `[Guardian Route] [${requestId}] 🔒 Session '${sessionId}' AUTO-LOCKED — risk score ${riskPayload.overallRiskScore}`
   );
+}
+
+async function generateRecommendedActions(payload: RiskAssessmentPayload): Promise<string[]> {
+  try {
+    initializeClient(config);
+    const raw = await generateJsonResponse(
+      "You are a financial security incident-response expert. Return JSON with an actions array containing exactly 3 specific, actionable steps.",
+      `Given this risk assessment (JSON), suggest 3 specific, actionable steps for a security team:\n${JSON.stringify(payload)}`,
+      config,
+      { temperature: 0.1, maxTokens: 1000 }
+    );
+    const parsed = JSON.parse(raw) as { actions?: unknown; recommendedActions?: unknown };
+    const actions = parsed.actions ?? parsed.recommendedActions;
+    return Array.isArray(actions) ? actions.filter((a): a is string => typeof a === "string").slice(0, 3) : [];
+  } catch (error) {
+    console.error("[Guardian] Recommended-actions generation failed:", error);
+    return [];
+  }
 }
 
 // ─── 🔓 Agent Auto-Unlock ─────────────────────────────────────────

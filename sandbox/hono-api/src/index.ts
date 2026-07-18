@@ -26,6 +26,7 @@ import { generateRouter } from "./routes/generate.js";
 import { guardianRouter } from "./routes/guardian.js";
 import { reviewRouter } from "./routes/review.js";
 import { identityRouter } from "./routes/identity.js";
+import auditorRoutes from "./routes/auditor.js";
 import { loadConfig } from "./config.js";
 
 // ─── Configuration ─────────────────────────────────────────────────
@@ -65,6 +66,7 @@ app.route("/api/v1/generate", generateRouter);
 app.route("/api/v1/guardian", guardianRouter);
 app.route("/api/v1/sessions", reviewRouter);
 app.route("/api/v1/identity", identityRouter);
+app.route("/api/v1/auditor", auditorRoutes);
 
 // ─── 404 Handler ───────────────────────────────────────────────────
 

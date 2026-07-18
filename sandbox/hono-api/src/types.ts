@@ -231,6 +231,7 @@ export interface RiskAssessmentPayload {
   pasteLineCount?: number;
   /** Total character count across all paste snippets */
   pasteCharCount?: number;
+  recommendedActions?: string[];
 }
 
 /** Running counter snapshot of behavioral deviations at risk-detection time. */
